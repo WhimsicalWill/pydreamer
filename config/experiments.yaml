@@ -27,8 +27,11 @@ crafter_reward:
   action_dim: 17
 
 # -------------------------
-# TODO: Minecraft
+# Minecraft
 # -------------------------
+minecraft_diamond:
+  env_id: minecraft-diamond
+  action_dim: 12 # TODO: modify
 
 # -------------------------
 # DMC

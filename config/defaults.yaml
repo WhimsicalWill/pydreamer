@@ -1,7 +1,7 @@
 defaults:
   # Job
-  n_steps: 60_000
-  n_env_steps: 60_000
+  n_steps: 100_000_000
+  n_env_steps: 1_000_000_000
   run_name:
   resume_id:
   offline_data_dir:
@@ -9,10 +9,10 @@ defaults:
   offline_test_dir:
   offline_eval_dir:
   log_interval: 100
-  logbatch_interval: 100 # changed from 1000 for more frequent d2_wm_dream logs
+  logbatch_interval: 1000
   save_interval: 500
   eval_interval: 2000
-  data_workers: 1
+  data_workers: 4
   allow_mid_reset: True
   enable_profiler: False
   verbose: False
@@ -46,7 +46,7 @@ defaults:
   adam_eps: 1.0e-5
   keep_state: True
   batch_length: 48
-  batch_size: 16
+  batch_size: 32
   device: "cuda:0"
   grad_clip: 200
   grad_clip_ac: 200
@@ -57,11 +57,11 @@ defaults:
 
   # Eval
   test_batches: 61  # For unbiased test needs to be enough to cover full episodes
-  test_batch_size: 4  # Smaller for faster test
+  test_batch_size: 10  # Smaller for faster test
   test_save_size: 1
   eval_batches: 61  # Big enough to reach episode end (xN). +1 to log last episode
   eval_samples: 1  # no multi-sampling to have reproducible paper results
-  eval_batch_size: 4  # Limited by GPU mem
+  eval_batch_size: 32  # Limited by GPU mem
   eval_save_size: 1  # How many envs to save in npz
 
   # Model
@@ -197,16 +197,10 @@ crafter:
   action_dim: 17
   generator_prefill_steps: 1000
 
-# minecraft:
-#   env_id: minecraft_diamond
-#   envs.amount: 16
-#   run:
-#     script: train_save
-#     eval_fill: 1e5
-#     train_ratio: 16
-#     log_keys_max: '^log_inventory.*'
-#   encoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath|reward', cnn_keys: 'image'}
-#   decoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath', cnn_keys: 'image'}
+minecraft:
+  env_id: minecraft-diamond
+  action_dim: 12
+  generator_prefill_steps: 1000
 
 dmc:
   env_id: DMC-quadruped_run
