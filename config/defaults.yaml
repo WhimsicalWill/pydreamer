@@ -46,7 +46,7 @@ defaults:
   adam_eps: 1.0e-5
   keep_state: True
   batch_length: 48
-  batch_size: 32
+  batch_size: 64
   device: "cuda:0"
   grad_clip: 200
   grad_clip_ac: 200
@@ -99,7 +99,7 @@ defaults:
   actor_dist: onehot
 
   # Generator
-  generator_workers: 1
+  generator_workers: 8
   generator_workers_eval: 1
   generator_prefill_steps: 200_000
   generator_prefill_policy: random
@@ -195,7 +195,7 @@ atari:
 crafter:
   env_id: crafter-reward
   action_dim: 17
-  generator_prefill_steps: 1000
+  generator_prefill_steps: 20000
 
 minecraft:
   env_id: minecraft-diamond
