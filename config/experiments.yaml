@@ -19,6 +19,18 @@ atari_spaceinvaders:
   env_id: Atari-Space_Invaders
 
 # -------------------------
+# Crafter
+# -------------------------
+
+crafter_reward:
+  env_id: crafter-reward
+  action_dim: 17
+
+# -------------------------
+# TODO: Minecraft
+# -------------------------
+
+# -------------------------
 # DMC
 # -------------------------
 

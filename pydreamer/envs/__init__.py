@@ -52,10 +52,19 @@ def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_r
         from .dmc import DMC
         env = DMC(env_id.split('-')[1].lower(), action_repeat=env_action_repeat)
 
+    elif env_id.startswith('crafter'):
+        # I don't think we need to have crafter in envs, just init from crafter package
+        import crafter
+        env = gym.make('CrafterReward-v1') # Or CrafterNoReward-v1
+        # can add recorder wrapper here for videos
+        env = DictWrapper(env) # other gym envs use this wrapper
+
     else:
         env = gym.make(env_id)
         env = DictWrapper(env)
 
+    # if the env is a subclass of Embodied.Env, we should use the logic from dreamerv3
+    # TODO: do we need embodied for minecraft env?
     if hasattr(env.action_space, 'n'):
         env = OneHotActionWrapper(env)
     if env_time_limit > 0:
