@@ -14,6 +14,8 @@ from .decoders import *
 from .rnn import *
 from .rssm import *
 from .probes import *
+from .exploration import *
+from .behaviors import *
 
 
 class Dreamer(nn.Module):
@@ -27,18 +29,19 @@ class Dreamer(nn.Module):
 
         self.wm = WorldModel(conf)
 
-        # Actor critic
+        # Pass World Model into task_behavior and explore_behavior
 
-        self.ac = ActorCritic(in_dim=state_dim,
-                              out_actions=conf.action_dim,
-                              layer_norm=conf.layer_norm,
-                              gamma=conf.gamma,
-                              lambda_gae=conf.lambda_gae,
-                              entropy_weight=conf.entropy,
-                              target_interval=conf.target_interval,
-                              actor_grad=conf.actor_grad,
-                              actor_dist=conf.actor_dist,
-                              )
+        self._task_behavior = {
+            "dreamer": ImagBehavior(conf, state_dim, self.wm),
+            # "gcdreamer": gcdreamer_imag.GCDreamerBehavior(conf, state_dim, self.wm),
+        }[conf.task_behavior]
+
+        reward = lambda f, s, a: self.wm.heads['reward'](f).mode()
+
+        self._expl_behavior = {
+            "greedy": lambda: self._task_behavior,
+            "plan2explore": lambda: Plan2Explore(conf, self.wm, reward),
+        }[conf.expl_behavior]()
 
         # Map probe
 
@@ -123,16 +126,16 @@ class Dreamer(nn.Module):
         metrics.update(**metrics_probe)
         tensors.update(**tensors_probe)
 
-        # Policy
-
+        # TODO: should this be copied if it's used twice?
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        # Note features_dream includes the starting "real" features at features_dream[0]
-        features_dream, actions_dream, rewards_dream, terminals_dream = \
-            self.dream(in_state_dream, H, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
-        (loss_actor, loss_critic), metrics_ac, tensors_ac = \
-            self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream)
-        metrics.update(**metrics_ac)
-        tensors.update(policy_value=unflatten_batch(tensors_ac['value'][0], (T, B, I)).mean(-1))
+
+        # Explore Behavior Training Step (explorer)
+
+        loss_actor, loss_critic = self._expl_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
+        
+        # Task Behavior Training Step (achiever)
+        
+        loss_actor, loss_critic = self._task_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
 
         # Dream for a log sample.
 
@@ -155,37 +158,9 @@ class Dreamer(nn.Module):
                 assert dream_tensors['action_pred'].shape == obs['action'].shape
                 assert dream_tensors['image_pred'].shape == obs['image'].shape
 
+        # TODO: modify metrics, tensors so that we have copies for explorer and achiever
+        # TODO: also determine how metrics are logged and what they're used for
         return (loss_model, loss_probe, loss_actor, loss_critic), out_state, metrics, tensors, dream_tensors
-
-    def dream(self, in_state: StateB, imag_horizon: int, dynamics_gradients=False):
-        features = []
-        actions = []
-        state = in_state
-        self.wm.requires_grad_(False)  # Prevent dynamics gradiens from affecting world model
-
-        for i in range(imag_horizon):
-            feature = self.wm.core.to_feature(*state)
-            action_dist = self.ac.forward_actor(feature)
-            if dynamics_gradients:
-                action = action_dist.rsample()
-            else:
-                action = action_dist.sample()
-            features.append(feature)
-            actions.append(action)
-            # When using dynamics gradients, this causes gradients in RSSM, which we don't want.
-            # This is handled in backprop - the optimizer_model will ignore gradients from loss_actor.
-            _, state = self.wm.core.cell.forward_prior(action, None, state)
-
-        feature = self.wm.core.to_feature(*state)
-        features.append(feature)
-        features = torch.stack(features)  # (H+1,TBI,D)
-        actions = torch.stack(actions)  # (H,TBI,A)
-
-        rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
-        terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
-
-        self.wm.requires_grad_(True)
-        return features, actions, rewards, terminals
 
     def __str__(self):
         # Short representation
@@ -334,3 +309,12 @@ class WorldModel(nn.Module):
                 tensors.update(**tensors_pred)  # image_pred, ...
 
         return loss_model.mean(), features, states, out_state, metrics, tensors
+
+
+class GCWorldModel(WorldModel):
+    '''
+    Goal conditioned World Model
+    '''
+
+    def __init__(self, conf):
+        pass

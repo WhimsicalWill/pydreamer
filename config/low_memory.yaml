@@ -1,9 +1,9 @@
-defaults:
+low_memory:
   # Job
   n_steps: 500_000
   n_env_steps: 5_000_000
   run_name:
-  resume_id:
+  resume_id: d5f8d51885c942619e52054b058bc647
   offline_data_dir:
   offline_prefill_dir:
   offline_test_dir:

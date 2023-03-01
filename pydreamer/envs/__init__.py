@@ -56,8 +56,20 @@ def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_r
     elif env_id.startswith('crafter'):
         # I don't think we need to have crafter in envs, just init from crafter package
         import crafter
+
+        # Set logging variables
+        crafter_save_video = True
+        run_id = 5
+        logdir = './logdir/run_2_26_v1'
+        crafter_video_dir = f'{logdir}/vids_{run_id}'
+
         env = gym.make('CrafterReward-v1') # Or CrafterNoReward-v1
-        # can add recorder wrapper here for videos
+        env = crafter.Recorder(
+            env, crafter_video_dir,
+            save_stats=True,
+            save_episode=False,
+            save_video=crafter_save_video,
+        )
         env = DictWrapper(env) # other gym envs use this wrapper
 
     # elif env_id.startswith('minecraft'):
