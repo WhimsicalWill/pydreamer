@@ -3,7 +3,7 @@ defaults:
   n_steps: 100_000_000
   n_env_steps: 1_000_000_000
   run_name:
-  resume_id: # TODO: add data here for resuming
+  resume_id:
   offline_data_dir:
   offline_prefill_dir:
   offline_test_dir:
@@ -197,10 +197,16 @@ crafter:
   action_dim: 17
   generator_prefill_steps: 20000
 
+# minecraft:
+#   env_id: minecraft-diamond
+#   action_dim: 12
+#   generator_prefill_steps: 1000
+
 minecraft:
-  env_id: minecraft-diamond
+  env_id: MineRLEnv-v1
   action_dim: 12
   generator_prefill_steps: 1000
+
 
 dmc:
   env_id: DMC-quadruped_run

@@ -10,7 +10,7 @@ class DenseHead(nn.Module):
     Can use learned std or fixed std.
     '''
 
-    def __init__(self, shape, layers, units, act=nn.elu, std=1.0):
+    def __init__(self, shape, layers, units, act=nn.ELU, std=1.0):
         super(DenseHead, self).__init__()
         self._shape = shape
         self._layers = layers

@@ -29,8 +29,13 @@ crafter_reward:
 # -------------------------
 # Minecraft
 # -------------------------
+
 minecraft_diamond:
   env_id: minecraft-diamond
+  action_dim: 12 # TODO: modify
+
+MineRL:
+  env_id: MineRLObtainDiamond-v0
   action_dim: 12 # TODO: modify
 
 # -------------------------

@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import networks
 
 from .behaviors import *
+from .networks import *
 
 class Plan2Explore(nn.Module):
     '''

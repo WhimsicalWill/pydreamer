@@ -5,7 +5,6 @@ warnings.filterwarnings("ignore", ".*Box bound precision lowered by casting")  #
 import gym
 import numpy as np
 
-# from .import minecraft_minerl
 from .wrappers import *
 
 
@@ -72,9 +71,12 @@ def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_r
         )
         env = DictWrapper(env) # other gym envs use this wrapper
 
+    # TODO: the following may not be needed because MineRL is supported above
     # elif env_id.startswith('minecraft'):
+    #     from . import minecraft_minerl
     #     env = minecraft_minerl.MineRLEnv().make()
     #     env = DictWrapper(env) # other gym envs use this wrapper
+    #     print(env)
 
     else:
         env = gym.make(env_id)

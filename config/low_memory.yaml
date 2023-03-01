@@ -3,7 +3,7 @@ low_memory:
   n_steps: 500_000
   n_env_steps: 5_000_000
   run_name:
-  resume_id: d5f8d51885c942619e52054b058bc647
+  resume_id:
   offline_data_dir:
   offline_prefill_dir:
   offline_test_dir:
@@ -197,16 +197,10 @@ crafter:
   action_dim: 17
   generator_prefill_steps: 1000
 
-# minecraft:
-#   env_id: minecraft_diamond
-#   envs.amount: 16
-#   run:
-#     script: train_save
-#     eval_fill: 1e5
-#     train_ratio: 16
-#     log_keys_max: '^log_inventory.*'
-#   encoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath|reward', cnn_keys: 'image'}
-#   decoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath', cnn_keys: 'image'}
+minecraft:
+  env_id: MineRLObtainDiamond-v0
+  action_dim: 12
+  generator_prefill_steps: 1000
 
 dmc:
   env_id: DMC-quadruped_run
