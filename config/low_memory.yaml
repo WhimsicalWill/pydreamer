@@ -1,4 +1,4 @@
-defaults:
+low_memory:
   # Job
   n_steps: 500_000
   n_env_steps: 5_000_000
@@ -195,7 +195,7 @@ atari:
 crafter:
   env_id: crafter-reward
   action_dim: 17
-  generator_prefill_steps: 1000
+  generator_prefill_steps: 200
 
 # minecraft:
 #   env_id: minecraft_diamond

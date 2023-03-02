@@ -1,5 +1,7 @@
 # PyDreamer
 
+python train.py --configs low_memory crafter crafter_reward --run_name crafter_test_v1
+
 Reimplementation of [DreamerV2](https://danijar.com/project/dreamerv2/) model-based RL algorithm in PyTorch. 
 
 The official DreamerV2 implementation [can be found here](https://danijar.com/project/dreamerv2/).

@@ -21,7 +21,8 @@ class ActorCritic(nn.Module):
                  entropy_weight=1e-3,
                  target_interval=100,
                  actor_grad='reinforce',
-                 actor_dist='onehot'
+                 actor_dist='onehot',
+                 goal_embed=None
                  ):
         super().__init__()
         self.in_dim = in_dim
@@ -33,16 +34,19 @@ class ActorCritic(nn.Module):
         self.actor_grad = actor_grad
         self.actor_dist = actor_dist
 
+        gc_in_dim = in_dim + goal_embed.shape[0]
         actor_out_dim = out_actions if actor_dist == 'onehot' else 2 * out_actions
-        self.actor = MLP(in_dim, actor_out_dim, hidden_dim, hidden_layers, layer_norm)
-        self.critic = MLP(in_dim, 1, hidden_dim, hidden_layers, layer_norm)
-        self.critic_target = MLP(in_dim, 1, hidden_dim, hidden_layers, layer_norm)
+
+        self.actor = MLP(gc_in_dim, actor_out_dim, hidden_dim, hidden_layers, layer_norm)
+        self.critic = MLP(gc_in_dim, 1, hidden_dim, hidden_layers, layer_norm)
+        self.critic_target = MLP(gc_in_dim, 1, hidden_dim, hidden_layers, layer_norm)
         self.critic_target.requires_grad_(False)
         self.train_steps = 0
 
-    def forward_actor(self, features: Tensor) -> D.Distribution:
-        y = self.actor.forward(features).float()  # .float() to force float32 on AMP
-
+    def forward_actor(self, features: Tensor, goal_embed: Tensor) -> D.Distribution:
+        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+        y = self.actor.forward(x).float()  # .float() to force float32 on AMP
+        
         if self.actor_dist == 'onehot':
             return D.OneHotCategorical(logits=y)
         
@@ -54,8 +58,9 @@ class ActorCritic(nn.Module):
 
         assert False, self.actor_dist
 
-    def forward_value(self, features: Tensor) -> Tensor:
-        y = self.critic.forward(features)
+    def forward_value(self, features: Tensor, goal_embed: Tensor) -> Tensor:
+        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+        y = self.critic.forward(x)
         return y
 
     def training_step(self,
@@ -63,6 +68,7 @@ class ActorCritic(nn.Module):
                       actions: TensorHMA,
                       rewards: D.Distribution,
                       terminals: D.Distribution,
+                      goal_embed: Tensor = None,
                       log_only=False
                       ):
         if not log_only:
@@ -70,14 +76,17 @@ class ActorCritic(nn.Module):
                 self.update_critic_target()
             self.train_steps += 1
 
-        reward1: TensorHM = rewards.mean[1:]
+        reward1: TensorHM = rewards[1:]
         terminal0: TensorHM = terminals.mean[:-1]
         terminal1: TensorHM = terminals.mean[1:]
 
         # GAE from https://arxiv.org/abs/1506.02438 eq (16)
         #   advantage_gae[t] = advantage[t] + (gamma lambda) advantage[t+1] + (gamma lambda)^2 advantage[t+2] + ...
 
-        value_t: TensorJM = self.critic_target.forward(features)
+        print(f"Features shape: {features.shape}")
+        print(f"Goal embed shape: {goal_embed.shape}")
+        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+        value_t: TensorJM = self.critic_target.forward(x)
         value0t: TensorHM = value_t[:-1]
         value1t: TensorHM = value_t[1:]
         advantage = - value0t + reward1 + self.gamma * (1.0 - terminal1) * value1t
@@ -101,14 +110,14 @@ class ActorCritic(nn.Module):
 
         # Critic loss
 
-        value: TensorJM = self.critic.forward(features.detach())
+        value: TensorJM = self.critic.forward(x.detach())
         value0: TensorHM = value[:-1]
         loss_critic = 0.5 * torch.square(value_target.detach() - value0)
         loss_critic = (loss_critic * reality_weight).mean()
 
         # Actor loss
 
-        policy_distr = self.forward_actor(features.detach()[:-1])  # TODO: we could reuse this from dream()
+        policy_distr = self.forward_actor(features.detach()[:-1], goal_embed)  # TODO: we could reuse this from dream()
         if self.actor_grad == 'reinforce':
             action_logprob = policy_distr.log_prob(actions.detach())
             loss_policy = - action_logprob * advantage_gae.detach()

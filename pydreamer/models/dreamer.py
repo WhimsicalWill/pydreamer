@@ -1,4 +1,5 @@
 from typing import Any, Tuple
+from PIL import Image
 
 import torch
 import torch.distributions as D
@@ -22,10 +23,19 @@ class Dreamer(nn.Module):
         super().__init__()
         assert conf.action_dim > 0, "Need to set action_dim to match environment"
         state_dim = conf.deter_dim + conf.stoch_dim * (conf.stoch_discrete or 1)
+        self.device = torch.device(conf.device)
+        self.conf = conf
 
         # World model
 
         self.wm = WorldModel(conf)
+        
+        # Load fixed goal image for actor-critic goal-conditioning
+
+        goal_img = self.load_frame("goal_images/many_trees.jpg")
+
+        # TODO: Do we need to cast to device here?
+        self.goal_embed = self.wm.encoder.encoder_image(goal_img).to(self.device)
 
         # Actor critic
 
@@ -38,6 +48,7 @@ class Dreamer(nn.Module):
                               target_interval=conf.target_interval,
                               actor_grad=conf.actor_grad,
                               actor_dist=conf.actor_dist,
+                              goal_embed=self.goal_embed,
                               )
 
         # Map probe
@@ -51,6 +62,14 @@ class Dreamer(nn.Module):
         else:
             raise NotImplementedError(f'Unknown probe_model={conf.probe_model}')
         self.probe_model = probe_model
+
+    def load_frame(self, file_name):
+        img = Image.open(file_name)
+        img = img.resize((64, 64))
+        img_array = np.array(img).transpose((2, 0, 1))
+        tensor = torch.from_numpy(img_array).float() / 255.0
+        print(f'Loaded goal image {file_name} with shape {img_array.shape} on device {self.device}')
+        return tensor
 
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
         optimizer_wm = torch.optim.AdamW(self.wm.parameters(), lr=lr, eps=eps)
@@ -86,11 +105,11 @@ class Dreamer(nn.Module):
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-        action_distr = self.ac.forward_actor(feature)  # (1,B,A)
-        value = self.ac.forward_value(feature)  # (1,B)
+        action_distr = self.ac.forward_actor(feature, self.goal_embed)  # (1,B,A)
+        value = self.ac.forward_value(feature, self.goal_embed)  # (1,B)
 
         metrics = dict(policy_value=value.detach().mean())
-        return action_distr, out_state, metrics
+        return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
 
     def training_step(self,
                       obs: Dict[str, Tensor],
@@ -130,7 +149,7 @@ class Dreamer(nn.Module):
         features_dream, actions_dream, rewards_dream, terminals_dream = \
             self.dream(in_state_dream, H, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
         (loss_actor, loss_critic), metrics_ac, tensors_ac = \
-            self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream)
+            self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, self.goal_embed)
         metrics.update(**metrics_ac)
         tensors.update(policy_value=unflatten_batch(tensors_ac['value'][0], (T, B, I)).mean(-1))
 
@@ -145,7 +164,7 @@ class Dreamer(nn.Module):
                 in_state_dream: StateB = map_structure(states, lambda x: x.detach()[0, :, 0])  # type: ignore  # (T,B,I) => (B)
                 features_dream, actions_dream, rewards_dream, terminals_dream = self.dream(in_state_dream, T - 1)  # H = T-1
                 image_dream = self.wm.decoder.image.forward(features_dream)
-                _, _, tensors_ac = self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, log_only=True)
+                _, _, tensors_ac = self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, self.goal_embed, log_only=True)
                 # The tensors are intentionally named same as in tensors, so the logged npz looks the same for dreamed or not
                 dream_tensors = dict(action_pred=torch.cat([obs['action'][:1], actions_dream]),  # first action is real from previous step
                                      reward_pred=rewards_dream.mean,
@@ -165,7 +184,7 @@ class Dreamer(nn.Module):
 
         for i in range(imag_horizon):
             feature = self.wm.core.to_feature(*state)
-            action_dist = self.ac.forward_actor(feature)
+            action_dist = self.ac.forward_actor(feature, self.goal_embed)
             if dynamics_gradients:
                 action = action_dist.rsample()
             else:
@@ -181,7 +200,24 @@ class Dreamer(nn.Module):
         features = torch.stack(features)  # (H+1,TBI,D)
         actions = torch.stack(actions)  # (H,TBI,A)
 
-        rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
+        # rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
+        # Instead of using the decoder, for LEXA we use cosine 
+        # distance on the goal embedding as a reward
+
+        # first initialize the RSSM
+        # then use the posterior to get the next feature from the goal embedding
+        # then use the negative cosine distance as the reward
+        batch_size = features.shape[0] * features.shape[1]
+        init_state = self.init_state(batch_size) # ((H+1)*TBI,D), ((H+1)*TBI,S)
+        action = torch.zeros(batch_size, self.conf.action_dim).to(self.device)
+        batch_goal_embed = self.goal_embed.repeat(batch_size, 1)
+        reset_mask = torch.zeros(batch_size, 1).to(self.device)
+        _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
+        goal_embed_features = self.wm.core.to_feature(h, z).reshape(*features.shape)
+        print(f"Shape1: {features.shape}, Shape2: {goal_embed_features.shape}")
+        rewards = -F.cosine_similarity(goal_embed_features, features, dim=-1) # (H+1,TBI)
+        print(f"Rewards shape: {rewards.shape}")
+
         terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
 
         self.wm.requires_grad_(True)
