@@ -56,11 +56,9 @@ class Dreamer(nn.Module):
             raise NotImplementedError(f'Unknown probe_model={conf.probe_model}')
         self.probe_model = probe_model
     
-    def get_goal_embedding(self, goal_np, batch_size):
-        goal_tensor = torch.from_numpy(goal_np).to(self.device)
-        goal_embed = self.wm.encoder.encoder_image(goal_tensor)
-        batch_goal = goal_embed.repeat(batch_size, 1)
-        return batch_goal
+    def get_goal_embedding(self, goal_image):
+        goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (T,B,E)
+        return goal_embed
 
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
         optimizer_wm = torch.optim.AdamW(self.wm.parameters(), lr=lr, eps=eps)
@@ -120,12 +118,13 @@ class Dreamer(nn.Module):
 
         # World model
 
-        loss_model, features, states, out_state, metrics, tensors, goal_embed = \
+        loss_model, features, states, out_state, metrics, tensors = \
             self.wm.training_step(obs,
                                   in_state,
                                   iwae_samples=iwae_samples,
                                   do_open_loop=do_open_loop,
                                   do_image_pred=do_image_pred)
+        goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
 
 
         # Map probe
@@ -189,28 +188,30 @@ class Dreamer(nn.Module):
 
         feature = self.wm.core.to_feature(*state)
         features.append(feature)
-        features = torch.stack(features)  # (H+1,TBI,D)
+        features = torch.stack(features)  # (H+1,TBI,D+S)
         actions = torch.stack(actions)  # (H,TBI,A)
 
         # rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
         # Instead of using the decoder, for LEXA we use cosine 
-        # distance on the goal embedding as a reward
+        # distance to the goal embedding as a reward
 
         # first initialize the RSSM
         # then use the posterior to get the next feature from the goal embedding
         # then use the negative cosine distance as the reward
-        batch_size = features.shape[0] * features.shape[1]
-        init_state = self.init_state(batch_size) # ((H+1)*TBI,D), ((H+1)*TBI,S))
-        action = torch.zeros(batch_size, self.conf.action_dim).to(self.device)
-        # TODO: remove
-        # TODO: modify a2c repeat
-        batch_goal_embed = goal_embed.repeat(batch_size, 1)
-        reset_mask = torch.zeros(batch_size, 1).to(self.device)
-        _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
-        goal_embed_features = self.wm.core.to_feature(h, z).reshape(*features.shape)
-        rewards = -F.cosine_similarity(goal_embed_features, features, dim=-1) # (H+1,TBI)
 
-        terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
+        # goal_embed is the embedding of the fixed goal (E,)
+        # features is the features from the RSSM dream (H+1,TBI,D+S)
+        with torch.no_grad():
+            batch_size = features.shape[0] * features.shape[1]
+            init_state = self.init_state(batch_size)                                                # ((H+1)*TBI,D+S)
+            action = torch.zeros(batch_size, self.conf.action_dim).to(self.device)                  # ((H+1)*TBI,A)
+            reset_mask = torch.zeros(batch_size, 1).to(self.device)                                 # ((H+1)*TBI,1)
+            batch_goal_embed = goal_embed.repeat(batch_size, 1)                                     # ((H+1)*TBI,E)
+            _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
+            goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1)*TBI,D+S)
+        rewards = -F.cosine_similarity(goal_features, features, dim=-1)                             # (H+1,TBI)
+
+        terminals = self.wm.decoder.terminal.forward(features)                      # (H+1,TBI)
 
         self.wm.requires_grad_(True)
         return features, actions, rewards, terminals
@@ -288,7 +289,7 @@ class WorldModel(nn.Module):
 
         # Encoder
 
-        embed, goal_embed = self.encoder(obs)
+        embed = self.encoder(obs)
 
         # RSSM
 
@@ -361,4 +362,4 @@ class WorldModel(nn.Module):
                 tensors.update(**tensors_logprob)  # logprob_image, ...
                 tensors.update(**tensors_pred)  # image_pred, ...
 
-        return loss_model.mean(), features, states, out_state, metrics, tensors, goal_embed
+        return loss_model.mean(), features, states, out_state, metrics, tensors 

@@ -48,7 +48,6 @@ class MultiEncoder(nn.Module):
 
         if self.encoder_image:
             image = obs['image']
-            goal_image = obs['goal']
             T, B, C, H, W = image.shape
             if self.reward_input:
                 reward = obs['reward']
@@ -61,7 +60,6 @@ class MultiEncoder(nn.Module):
                                 terminal_plane.to(image.dtype)], dim=-3)
 
             embed_image = self.encoder_image.forward(image)  # (T,B,E)
-            goal_embed = self.encoder_image.forward(goal_image) # (T,B,E)
             embeds.append(embed_image)
 
         if self.encoder_vecobs:
@@ -69,7 +67,7 @@ class MultiEncoder(nn.Module):
             embeds.append(embed_vecobs)
 
         embed = torch.cat(embeds, dim=-1)  # (T,B,E+256)
-        return embed, goal_embed
+        return embed 
 
 
 class ConvEncoder(nn.Module):

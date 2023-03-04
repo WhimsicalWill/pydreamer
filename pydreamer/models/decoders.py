@@ -13,7 +13,7 @@ class MultiDecoder(nn.Module):
         super().__init__()
         self.image_weight = conf.image_weight
         self.vecobs_weight = conf.vecobs_weight
-        self.reward_weight = conf.reward_weight
+        # self.reward_weight = conf.reward_weight
         self.terminal_weight = conf.terminal_weight
 
         if conf.image_decoder == 'cnn':
@@ -31,13 +31,13 @@ class MultiDecoder(nn.Module):
         else:
             assert False, conf.image_decoder
 
-        if conf.reward_decoder_categorical:
-            self.reward = DenseCategoricalSupportDecoder(in_dim=features_dim,
-                                                         support=conf.reward_decoder_categorical,
-                                                         hidden_layers=conf.reward_decoder_layers,
-                                                         layer_norm=conf.layer_norm)
-        else:
-            self.reward = DenseNormalDecoder(in_dim=features_dim, hidden_layers=conf.reward_decoder_layers, layer_norm=conf.layer_norm)
+        # if conf.reward_decoder_categorical:
+        #     self.reward = DenseCategoricalSupportDecoder(in_dim=features_dim,
+        #                                                  support=conf.reward_decoder_categorical,
+        #                                                  hidden_layers=conf.reward_decoder_layers,
+        #                                                  layer_norm=conf.layer_norm)
+        # else:
+        #     self.reward = DenseNormalDecoder(in_dim=features_dim, hidden_layers=conf.reward_decoder_layers, layer_norm=conf.layer_norm)
 
         self.terminal = DenseBernoulliDecoder(in_dim=features_dim, hidden_layers=conf.terminal_decoder_layers, layer_norm=conf.layer_norm)
 
@@ -69,11 +69,11 @@ class MultiDecoder(nn.Module):
             tensors.update(loss_vecobs=loss_vecobs.detach(),
                         vecobs_rec=vecobs_rec.detach())
 
-        loss_reward_tbi, loss_reward, reward_rec = self.reward.training_step(features, obs['reward'])
-        loss_reconstr += self.reward_weight * loss_reward_tbi
-        metrics.update(loss_reward=loss_reward.detach().mean())
-        tensors.update(loss_reward=loss_reward.detach(),
-                       reward_rec=reward_rec.detach())
+        # loss_reward_tbi, loss_reward, reward_rec = self.reward.training_step(features, obs['reward'])
+        # loss_reconstr += self.reward_weight * loss_reward_tbi
+        # metrics.update(loss_reward=loss_reward.detach().mean())
+        # tensors.update(loss_reward=loss_reward.detach(),
+        #                reward_rec=reward_rec.detach())
 
         loss_terminal_tbi, loss_terminal, terminal_rec = self.terminal.training_step(features, obs['terminal'])
         loss_reconstr += self.terminal_weight * loss_terminal_tbi
@@ -82,15 +82,15 @@ class MultiDecoder(nn.Module):
                        terminal_rec=terminal_rec.detach())
 
         if extra_metrics:
-            mask_rewardp = obs['reward'] > 0  # mask where reward is positive
-            loss_rewardp = loss_reward * mask_rewardp / mask_rewardp  # set to nan where ~mask
-            metrics.update(loss_rewardp=nanmean(loss_rewardp))
-            tensors.update(loss_rewardp=loss_rewardp)
+            # mask_rewardp = obs['reward'] > 0  # mask where reward is positive
+            # loss_rewardp = loss_reward * mask_rewardp / mask_rewardp  # set to nan where ~mask
+            # metrics.update(loss_rewardp=nanmean(loss_rewardp))
+            # tensors.update(loss_rewardp=loss_rewardp)
 
-            mask_rewardn = obs['reward'] < 0  # mask where reward is negative
-            loss_rewardn = loss_reward * mask_rewardn / mask_rewardn  # set to nan where ~mask
-            metrics.update(loss_rewardn=nanmean(loss_rewardn))
-            tensors.update(loss_rewardn=loss_rewardn)
+            # mask_rewardn = obs['reward'] < 0  # mask where reward is negative
+            # loss_rewardn = loss_reward * mask_rewardn / mask_rewardn  # set to nan where ~mask
+            # metrics.update(loss_rewardn=nanmean(loss_rewardn))
+            # tensors.update(loss_rewardn=loss_rewardn)
 
             mask_terminal1 = obs['terminal'] > 0  # mask where terminal is 1
             loss_terminal1 = loss_terminal * mask_terminal1 / mask_terminal1  # set to nan where ~mask

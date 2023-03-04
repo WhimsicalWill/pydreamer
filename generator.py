@@ -20,7 +20,7 @@ from pydreamer.data import MlflowEpisodeRepository
 from pydreamer.envs import create_env
 from pydreamer.models import *
 from pydreamer.models.functions import map_structure
-from pydreamer.preprocessing import Preprocessor
+from pydreamer.preprocessing import Preprocessor, load_goal_from_image
 from pydreamer.tools import *
 
 
@@ -139,7 +139,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
 
         while not done:
             action, mets = policy(obs)
-            obs, reward, done, inf = env.step(action)
+            obs, _, done, inf = env.step(action)
             steps += 1
             epsteps += 1
             for k, v in mets.items():
@@ -269,6 +269,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
 
 
 def create_policy(policy_type: str, env, model_conf):
+    # TODO: add goal-conditioned network option here?
     if policy_type == 'network':
         conf = model_conf
         if conf.model == 'dreamer':
@@ -324,6 +325,8 @@ class NetworkPolicy:
         self.state = model.init_state(1)
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
+        # add the goal image to the observation
+        obs['goal'] = load_goal_from_image('goal_images/many_trees.jpg')
         batch = self.preprocess.apply(obs, expandTB=True)
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 

@@ -224,6 +224,7 @@ def run(conf):
                 with timer('data'):
 
                     batch, wid = next(data_iter)
+                    # TODO: integrate goal sampling into the data loader
                     batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
                     obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
 
@@ -397,6 +398,7 @@ def evaluate(prefix: str,
         with torch.no_grad():
 
             batch = next(data_iterator)
+            # TODO: integrate goal sampling into the data loader
             batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
             obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
             T, B = obs['action'].shape[:2]
