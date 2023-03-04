@@ -325,8 +325,6 @@ class NetworkPolicy:
         self.state = model.init_state(1)
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
-        # add the goal image to the observation
-        obs['goal'] = load_goal_from_image('goal_images/many_trees.jpg')
         batch = self.preprocess.apply(obs, expandTB=True)
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 
