@@ -52,13 +52,16 @@ class MultiEncoder(nn.Module):
             if self.reward_input:
                 reward = obs['reward']
                 terminal = obs['terminal']
+                goal_img = obs['goal']
                 reward_plane = reward.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand((T, B, 1, H, W))
                 terminal_plane = terminal.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand((T, B, 1, H, W))
+                goal_embed = goal_embed.unsqueeze(-1).unsqueeze(-1).expand((T, B, -1, -1, -1))
                 image = torch.cat([image,  # (T,B,C+2,H,W)
                                 reward_plane.to(image.dtype),
                                 terminal_plane.to(image.dtype)], dim=-3)
 
             embed_image = self.encoder_image.forward(image)  # (T,B,E)
+            goal_embed = self.encoder_image.forward(goal_img) # (T,B,E)
             embeds.append(embed_image)
 
         if self.encoder_vecobs:
@@ -66,13 +69,14 @@ class MultiEncoder(nn.Module):
             embeds.append(embed_vecobs)
 
         embed = torch.cat(embeds, dim=-1)  # (T,B,E+256)
-        return embed
+        return embed, goal_embed
 
 
 class ConvEncoder(nn.Module):
 
     def __init__(self, in_channels=3, cnn_depth=32, activation=nn.ELU):
         super().__init__()
+        self.in_channels = in_channels
         self.out_dim = cnn_depth * 32
         kernels = (4, 4, 4, 4)
         stride = 2
@@ -88,6 +92,12 @@ class ConvEncoder(nn.Module):
             activation(),
             nn.Flatten()
         )
+
+    @property
+    def out_size(self):
+        x = torch.zeros((1, self.in_channels, 64, 64))
+        out = self.model(x)
+        return out.shape[1]
 
     def forward(self, x):
         x, bd = flatten_batch(x, 3)

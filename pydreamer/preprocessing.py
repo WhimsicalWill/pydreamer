@@ -1,6 +1,7 @@
 from typing import Callable, Dict, Tuple
 
 import numpy as np
+from PIL import Image
 from torch.utils.data import IterableDataset, get_worker_info
 
 from .tools import *
@@ -17,7 +18,7 @@ def img_to_onehot(x: np.ndarray, n_categories) -> np.ndarray:
     return x
 
 
-def to_image(x: np.ndarray) -> np.ndarray:
+def to_image_batch(x: np.ndarray) -> np.ndarray:
     if x.dtype == np.uint8:
         x = x.astype(np.float32)
         x = x / 255.0 - 0.5
@@ -27,12 +28,10 @@ def to_image(x: np.ndarray) -> np.ndarray:
     x = x.transpose(0, 1, 4, 2, 3)  # (T, B, H, W, C) => (T, B, C, H, W)
     return x
 
-
 def remove_keys(data: dict, keys: list):
     for key in keys:
         if key in data:
             del data[key]
-
 
 class WorkerInfoPreprocess(IterableDataset):
 
@@ -87,6 +86,19 @@ class Preprocessor:
     def __call__(self, dataset: IterableDataset) -> IterableDataset:
         return TransformedDataset(dataset, self.apply)
 
+    def process_goal_img(self, x: np.ndarray) -> np.ndarray:
+        if x.dtype == np.uint8:
+            x = x.astype(np.float32)
+            x = x / 255.0 - 0.5
+        if self.amp:
+            x = x.astype(np.float16)
+        return x
+
+    def load_goal_from_image(self, file_name):
+        goal_img = Image.open(file_name).resize((64, 64))
+        goal_np = np.array(goal_img).transpose((2, 0, 1)) # TODO: add casting?
+        return goal_np
+
     def apply(self, batch: Dict[str, np.ndarray], expandTB=False) -> Dict[str, np.ndarray]:
         print_once('Preprocess batch (before): ', {k: v.shape + (v.dtype.name,) for k, v in batch.items()})
 
@@ -107,7 +119,7 @@ class Preprocessor:
             if self.image_categorical:
                 batch['image'] = img_to_onehot(batch['image'], self.image_categorical)
             else:
-                batch['image'] = to_image(batch['image'])
+                batch['image'] = to_image_batch(batch['image'])
 
         # map
 
@@ -116,8 +128,7 @@ class Preprocessor:
             if self.map_categorical:
                 batch['map'] = img_to_onehot(batch['map'], self.map_categorical)
             else:
-                batch['map'] = to_image(batch['map'])
-            # cleanup unused
+                batch['map'] = to_image_batch(batch['map'])
             remove_keys(batch, ['map_centered'])
 
         if 'map_seen' in batch:

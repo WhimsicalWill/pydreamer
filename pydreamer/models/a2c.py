@@ -12,6 +12,7 @@ class ActorCritic(nn.Module):
 
     def __init__(self,
                  in_dim,
+                 embed_size,
                  out_actions,
                  hidden_dim=400,
                  hidden_layers=4,
@@ -22,7 +23,6 @@ class ActorCritic(nn.Module):
                  target_interval=100,
                  actor_grad='reinforce',
                  actor_dist='onehot',
-                 goal_embed=None
                  ):
         super().__init__()
         self.in_dim = in_dim
@@ -34,7 +34,7 @@ class ActorCritic(nn.Module):
         self.actor_grad = actor_grad
         self.actor_dist = actor_dist
 
-        gc_in_dim = in_dim + goal_embed.shape[0]
+        gc_in_dim = in_dim + embed_size
         actor_out_dim = out_actions if actor_dist == 'onehot' else 2 * out_actions
 
         self.actor = MLP(gc_in_dim, actor_out_dim, hidden_dim, hidden_layers, layer_norm)

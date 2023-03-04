@@ -73,6 +73,7 @@ def run(conf):
                                   save_uri=f'{artifact_uri}/episodes/{i}',
                                   save_uri2=f'{artifact_uri}/episodes_eval/{i}',
                                   num_steps=conf.n_env_steps // conf.env_action_repeat // conf.generator_workers,
+                                  steps_per_npz=conf.steps_per_npz,
                                   limit_step_ratio=conf.limit_step_ratio / conf.generator_workers,
                                   worker_id=i,
                                   policy_main='network',
@@ -172,6 +173,9 @@ def run(conf):
         model: Dreamer = WorldModelProbe(conf)  # type: ignore
     model.to(device)
 
+    # Load Goal Image
+    goal_image_np = preprocess.load_goal_from_image('goal_images/many_trees.jpg')
+
     print(model)
     # print(repr(model))
     mlflow_log_text(repr(model), 'architecture.txt')
@@ -220,6 +224,7 @@ def run(conf):
                 with timer('data'):
 
                     batch, wid = next(data_iter)
+                    batch['goal'] = torch.from_numpy(preprocess.process_goal_img(goal_image_np))
                     obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
 
                 # Forward
@@ -540,6 +545,7 @@ def run_generator(env_id,
                   worker_id=0,
                   num_steps=int(1e9),
                   num_steps_prefill=0,
+                  steps_per_npz=1000,
                   limit_step_ratio=0,
                   block=False,
                   split_fraction=0.0,
@@ -562,6 +568,7 @@ def run_generator(env_id,
                     policy_prefill=policy_prefill,
                     num_steps=num_steps,
                     num_steps_prefill=num_steps_prefill,
+                    steps_per_npz=steps_per_npz,
                     worker_id=worker_id,
                     model_conf=conf,
                     log_mlflow_metrics=log_mlflow_metrics,
