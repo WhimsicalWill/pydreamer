@@ -106,6 +106,7 @@ defaults:
   generator_workers_eval: 1
   generator_prefill_steps: 200_000
   generator_prefill_policy: random
+  steps_per_npz: 1000
   limit_step_ratio: 0
   env_id:
   env_id_eval:
