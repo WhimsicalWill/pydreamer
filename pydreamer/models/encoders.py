@@ -48,11 +48,11 @@ class MultiEncoder(nn.Module):
 
         if self.encoder_image:
             image = obs['image']
+            goal_image = obs['goal']
             T, B, C, H, W = image.shape
             if self.reward_input:
                 reward = obs['reward']
                 terminal = obs['terminal']
-                goal_img = obs['goal']
                 reward_plane = reward.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand((T, B, 1, H, W))
                 terminal_plane = terminal.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand((T, B, 1, H, W))
                 goal_embed = goal_embed.unsqueeze(-1).unsqueeze(-1).expand((T, B, -1, -1, -1))
@@ -61,7 +61,7 @@ class MultiEncoder(nn.Module):
                                 terminal_plane.to(image.dtype)], dim=-3)
 
             embed_image = self.encoder_image.forward(image)  # (T,B,E)
-            goal_embed = self.encoder_image.forward(goal_img) # (T,B,E)
+            goal_embed = self.encoder_image.forward(goal_image) # (T,B,E)
             embeds.append(embed_image)
 
         if self.encoder_vecobs:

@@ -28,6 +28,20 @@ def to_image_batch(x: np.ndarray) -> np.ndarray:
     x = x.transpose(0, 1, 4, 2, 3)  # (T, B, H, W, C) => (T, B, C, H, W)
     return x
 
+def process_goal_img(x: np.ndarray, amp) -> np.ndarray:
+    if x.dtype == np.uint8:
+        x = x.astype(np.float32)
+        x = x / 255.0 - 0.5
+    if amp:
+        x = x.astype(np.float16)
+    return x
+
+def load_goal_from_image(file_name):
+    goal_img = Image.open(file_name).resize((64, 64))
+    goal_np = np.array(goal_img).transpose((2, 0, 1))
+    return goal_np
+
+
 def remove_keys(data: dict, keys: list):
     for key in keys:
         if key in data:
@@ -85,19 +99,6 @@ class Preprocessor:
 
     def __call__(self, dataset: IterableDataset) -> IterableDataset:
         return TransformedDataset(dataset, self.apply)
-
-    def process_goal_img(self, x: np.ndarray) -> np.ndarray:
-        if x.dtype == np.uint8:
-            x = x.astype(np.float32)
-            x = x / 255.0 - 0.5
-        if self.amp:
-            x = x.astype(np.float16)
-        return x
-
-    def load_goal_from_image(self, file_name):
-        goal_img = Image.open(file_name).resize((64, 64))
-        goal_np = np.array(goal_img).transpose((2, 0, 1)) # TODO: add casting?
-        return goal_np
 
     def apply(self, batch: Dict[str, np.ndarray], expandTB=False) -> Dict[str, np.ndarray]:
         print_once('Preprocess batch (before): ', {k: v.shape + (v.dtype.name,) for k, v in batch.items()})

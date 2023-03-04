@@ -96,8 +96,8 @@ class Dreamer(nn.Module):
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-        action_distr = self.ac.forward_actor(feature, goal_embed)  # (1,B,A)
-        value = self.ac.forward_value(feature, goal_embed)  # (1,B)
+        action_distr = self.ac.forward_actor(feature, obs['goal'])  # (1,B,A)
+        value = self.ac.forward_value(feature, obs['goal'])  # (1,B)
 
         metrics = dict(policy_value=value.detach().mean())
         return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
@@ -127,6 +127,7 @@ class Dreamer(nn.Module):
                                   do_open_loop=do_open_loop,
                                   do_image_pred=do_image_pred)
 
+
         # Map probe
 
         loss_probe, metrics_probe, tensors_probe = self.probe_model.training_step(features.detach(), obs)
@@ -138,7 +139,7 @@ class Dreamer(nn.Module):
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
         # Note features_dream includes the starting "real" features at features_dream[0]
         features_dream, actions_dream, rewards_dream, terminals_dream = \
-            self.dream(in_state_dream, H, self.ac.actor_grad == 'dynamics', goal_embed)  # (H+1,TBI,D)
+            self.dream(in_state_dream, H, goal_embed, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
         (loss_actor, loss_critic), metrics_ac, tensors_ac = \
             self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, goal_embed)
         metrics.update(**metrics_ac)
@@ -153,12 +154,12 @@ class Dreamer(nn.Module):
                 # and here for inspection purposes we only dream from first step, so it's (H*B).
                 # Oh, and we set here H=T-1, so we get (T,B), and the dreamed experience aligns with actual.
                 in_state_dream: StateB = map_structure(states, lambda x: x.detach()[0, :, 0])  # type: ignore  # (T,B,I) => (B)
-                features_dream, actions_dream, rewards_dream, terminals_dream = self.dream(in_state_dream, T - 1)  # H = T-1
+                features_dream, actions_dream, rewards_dream, terminals_dream = self.dream(in_state_dream, T - 1, goal_embed)  # H = T-1
                 image_dream = self.wm.decoder.image.forward(features_dream)
                 _, _, tensors_ac = self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, goal_embed, log_only=True)
                 # The tensors are intentionally named same as in tensors, so the logged npz looks the same for dreamed or not
                 dream_tensors = dict(action_pred=torch.cat([obs['action'][:1], actions_dream]),  # first action is real from previous step
-                                     reward_pred=rewards_dream.mean,
+                                     reward_pred=rewards_dream,
                                      terminal_pred=terminals_dream.mean,
                                      image_pred=image_dream,
                                      **tensors_ac)
@@ -199,17 +200,15 @@ class Dreamer(nn.Module):
         # then use the posterior to get the next feature from the goal embedding
         # then use the negative cosine distance as the reward
         batch_size = features.shape[0] * features.shape[1]
-        init_state = self.init_state(batch_size) # ((H+1)*TBI,D), ((H+1)*TBI,S)
+        init_state = self.init_state(batch_size) # ((H+1)*TBI,D), ((H+1)*TBI,S))
         action = torch.zeros(batch_size, self.conf.action_dim).to(self.device)
         # TODO: remove
         # TODO: modify a2c repeat
-        batch_goal_embed = self.goal_embed.repeat(batch_size, 1)
+        batch_goal_embed = goal_embed.repeat(batch_size, 1)
         reset_mask = torch.zeros(batch_size, 1).to(self.device)
         _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
         goal_embed_features = self.wm.core.to_feature(h, z).reshape(*features.shape)
-        print(f"Shape1: {features.shape}, Shape2: {goal_embed_features.shape}")
         rewards = -F.cosine_similarity(goal_embed_features, features, dim=-1) # (H+1,TBI)
-        print(f"Rewards shape: {rewards.shape}")
 
         terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
 
@@ -280,7 +279,6 @@ class WorldModel(nn.Module):
 
     def training_step(self,
                       obs: Dict[str, Tensor],
-                      goal_img: Tensor,
                       in_state: Any,
                       iwae_samples: int = 1,
                       do_open_loop=False,

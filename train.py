@@ -30,7 +30,7 @@ from pydreamer import tools
 from pydreamer.data import DataSequential, MlflowEpisodeRepository
 from pydreamer.models import *
 from pydreamer.models.functions import map_structure, nanmean
-from pydreamer.preprocessing import Preprocessor, WorkerInfoPreprocess
+from pydreamer.preprocessing import Preprocessor, WorkerInfoPreprocess, load_goal_from_image, process_goal_img
 from pydreamer.tools import *
 
 torch.distributions.Distribution.set_default_validate_args(False)
@@ -174,7 +174,7 @@ def run(conf):
     model.to(device)
 
     # Load Goal Image
-    goal_image_np = preprocess.load_goal_from_image('goal_images/many_trees.jpg')
+    goal_image_np = load_goal_from_image('goal_images/many_trees.jpg')
 
     print(model)
     # print(repr(model))
@@ -224,7 +224,7 @@ def run(conf):
                 with timer('data'):
 
                     batch, wid = next(data_iter)
-                    batch['goal'] = torch.from_numpy(preprocess.process_goal_img(goal_image_np))
+                    batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
                     obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
 
                 # Forward
@@ -347,12 +347,12 @@ def run(conf):
                             # Test = same settings as train
                             data_test = DataSequential(MlflowEpisodeRepository(test_dirs), conf.batch_length, conf.test_batch_size, skip_first=False, reset_interval=conf.reset_interval)
                             test_iter = iter(DataLoader(preprocess(data_test), batch_size=None))
-                            evaluate('test', steps, model, test_iter, device, conf.test_batches, conf.iwae_samples, conf.keep_state, conf.test_save_size, conf)
+                            evaluate('test', steps, model, test_iter, device, conf.test_batches, conf.iwae_samples, conf.keep_state, conf.test_save_size, conf, goal_image_np)
 
                             # Eval = no state reset, multisampling
                             data_eval = DataSequential(MlflowEpisodeRepository(eval_dirs), conf.batch_length, conf.eval_batch_size, skip_first=False)
                             eval_iter = iter(DataLoader(preprocess(data_eval), batch_size=None))
-                            evaluate('eval', steps, model, eval_iter, device, conf.eval_batches, conf.eval_samples, True, conf.eval_save_size, conf)
+                            evaluate('eval', steps, model, eval_iter, device, conf.eval_batches, conf.eval_samples, True, conf.eval_save_size, conf, goal_image_np)
 
                         except Exception as e:
                             # This catch is useful if there is no eval data generated yet
@@ -382,7 +382,8 @@ def evaluate(prefix: str,
              eval_samples: int,
              keep_state: bool,
              save_size: int,
-             conf):
+             conf,
+             goal_image_np):
 
     start_time = time.time()
     metrics_eval = defaultdict(list)
@@ -396,6 +397,7 @@ def evaluate(prefix: str,
         with torch.no_grad():
 
             batch = next(data_iterator)
+            batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
             obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
             T, B = obs['action'].shape[:2]
 

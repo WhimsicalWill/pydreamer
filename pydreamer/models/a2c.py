@@ -83,8 +83,6 @@ class ActorCritic(nn.Module):
         # GAE from https://arxiv.org/abs/1506.02438 eq (16)
         #   advantage_gae[t] = advantage[t] + (gamma lambda) advantage[t+1] + (gamma lambda)^2 advantage[t+2] + ...
 
-        print(f"Features shape: {features.shape}")
-        print(f"Goal embed shape: {goal_embed.shape}")
         x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
         value_t: TensorJM = self.critic_target.forward(x)
         value0t: TensorHM = value_t[:-1]
