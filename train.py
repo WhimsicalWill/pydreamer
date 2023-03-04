@@ -12,6 +12,7 @@ from logging import critical, debug, error, info, warning
 from multiprocessing import Process
 from pathlib import Path
 from typing import Iterator, Optional
+from PIL import Image
 
 import mlflow
 import numpy as np
@@ -30,7 +31,7 @@ from pydreamer import tools
 from pydreamer.data import DataSequential, MlflowEpisodeRepository
 from pydreamer.models import *
 from pydreamer.models.functions import map_structure, nanmean
-from pydreamer.preprocessing import Preprocessor, WorkerInfoPreprocess, load_goal_from_image, process_goal_img
+from pydreamer.preprocessing import Preprocessor, WorkerInfoPreprocess
 from pydreamer.tools import *
 
 torch.distributions.Distribution.set_default_validate_args(False)
@@ -147,6 +148,11 @@ def run(conf):
             info(f'Requested {conf.n_env_steps} steps, prefilled {data_train_stats.stats_steps} x{conf.env_action_repeat} - DONE')
             return
 
+    # Load goal image
+
+    goal_img = Image.open(f'goal_images/{conf.goal_path}').resize((64, 64))
+    goal_image_np = np.array(goal_img).transpose((2, 0, 1))
+
     # Data reader
 
     data = DataSequential(MlflowEpisodeRepository(input_dirs),
@@ -163,7 +169,8 @@ def run(conf):
                               map_key=conf.map_key,
                               action_dim=conf.action_dim,
                               clip_rewards=conf.clip_rewards,
-                              amp=conf.device.startswith('cuda') and conf.amp)
+                              amp=conf.device.startswith('cuda') and conf.amp,
+                              goal_image=goal_image_np)
 
     # MODEL
 
@@ -172,9 +179,6 @@ def run(conf):
     else:
         model: Dreamer = WorldModelProbe(conf)  # type: ignore
     model.to(device)
-
-    # Load Goal Image
-    goal_image_np = load_goal_from_image('goal_images/many_trees.jpg')
 
     print(model)
     # print(repr(model))
@@ -224,8 +228,6 @@ def run(conf):
                 with timer('data'):
 
                     batch, wid = next(data_iter)
-                    # TODO: integrate goal sampling into the data loader
-                    batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
                     obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
 
                 # Forward
@@ -348,12 +350,12 @@ def run(conf):
                             # Test = same settings as train
                             data_test = DataSequential(MlflowEpisodeRepository(test_dirs), conf.batch_length, conf.test_batch_size, skip_first=False, reset_interval=conf.reset_interval)
                             test_iter = iter(DataLoader(preprocess(data_test), batch_size=None))
-                            evaluate('test', steps, model, test_iter, device, conf.test_batches, conf.iwae_samples, conf.keep_state, conf.test_save_size, conf, goal_image_np)
+                            evaluate('test', steps, model, test_iter, device, conf.test_batches, conf.iwae_samples, conf.keep_state, conf.test_save_size, conf)
 
                             # Eval = no state reset, multisampling
                             data_eval = DataSequential(MlflowEpisodeRepository(eval_dirs), conf.batch_length, conf.eval_batch_size, skip_first=False)
                             eval_iter = iter(DataLoader(preprocess(data_eval), batch_size=None))
-                            evaluate('eval', steps, model, eval_iter, device, conf.eval_batches, conf.eval_samples, True, conf.eval_save_size, conf, goal_image_np)
+                            evaluate('eval', steps, model, eval_iter, device, conf.eval_batches, conf.eval_samples, True, conf.eval_save_size, conf)
 
                         except Exception as e:
                             # This catch is useful if there is no eval data generated yet
@@ -383,8 +385,7 @@ def evaluate(prefix: str,
              eval_samples: int,
              keep_state: bool,
              save_size: int,
-             conf,
-             goal_image_np):
+             conf):
 
     start_time = time.time()
     metrics_eval = defaultdict(list)
@@ -398,8 +399,6 @@ def evaluate(prefix: str,
         with torch.no_grad():
 
             batch = next(data_iterator)
-            # TODO: integrate goal sampling into the data loader
-            batch['goal'] = torch.from_numpy(process_goal_img(goal_image_np, conf.amp))
             obs: Dict[str, Tensor] = map_structure(batch, lambda x: x.to(device))  # type: ignore
             T, B = obs['action'].shape[:2]
 

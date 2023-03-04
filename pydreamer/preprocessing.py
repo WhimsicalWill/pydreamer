@@ -18,7 +18,7 @@ def img_to_onehot(x: np.ndarray, n_categories) -> np.ndarray:
     return x
 
 
-def to_image_batch(x: np.ndarray) -> np.ndarray:
+def to_image(x: np.ndarray) -> np.ndarray:
     if x.dtype == np.uint8:
         x = x.astype(np.float32)
         x = x / 255.0 - 0.5
@@ -35,12 +35,6 @@ def process_goal_img(x: np.ndarray, amp) -> np.ndarray:
     if amp:
         x = x.astype(np.float16)
     return x
-
-def load_goal_from_image(file_name):
-    goal_img = Image.open(file_name).resize((64, 64))
-    goal_np = np.array(goal_img).transpose((2, 0, 1))
-    return goal_np
-
 
 def remove_keys(data: dict, keys: list):
     for key in keys:
@@ -88,7 +82,8 @@ class Preprocessor:
                  map_categorical=None,
                  action_dim=0,
                  clip_rewards=None,
-                 amp=False):
+                 amp=False,
+                 goal_image=None):
         self.image_categorical = image_categorical
         self.image_key = image_key
         self.map_categorical = map_categorical
@@ -96,6 +91,7 @@ class Preprocessor:
         self.action_dim = action_dim
         self.clip_rewards = clip_rewards
         self.amp = amp
+        self.goal_image=goal_image
 
     def __call__(self, dataset: IterableDataset) -> IterableDataset:
         return TransformedDataset(dataset, self.apply)
@@ -120,7 +116,11 @@ class Preprocessor:
             if self.image_categorical:
                 batch['image'] = img_to_onehot(batch['image'], self.image_categorical)
             else:
-                batch['image'] = to_image_batch(batch['image'])
+                batch['image'] = to_image(batch['image'])
+
+        # goal image
+
+        batch['goal'] = process_goal_img(self.goal_image, self.amp)
 
         # map
 
@@ -129,7 +129,7 @@ class Preprocessor:
             if self.map_categorical:
                 batch['map'] = img_to_onehot(batch['map'], self.map_categorical)
             else:
-                batch['map'] = to_image_batch(batch['map'])
+                batch['map'] = to_image(batch['map'])
             remove_keys(batch, ['map_centered'])
 
         if 'map_seen' in batch:
@@ -189,7 +189,7 @@ class Preprocessor:
         # => float16
 
         if self.amp:
-            for key in ['image', 'action', 'action_next', 'map', 'map_coord', 'vecobs']:
+            for key in ['image', 'action', 'action_next', 'map', 'map_coord', 'vecobs', 'goal']:
                 if key in batch:
                     batch[key] = batch[key].astype(np.float16)
 

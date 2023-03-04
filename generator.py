@@ -20,7 +20,7 @@ from pydreamer.data import MlflowEpisodeRepository
 from pydreamer.envs import create_env
 from pydreamer.models import *
 from pydreamer.models.functions import map_structure
-from pydreamer.preprocessing import Preprocessor, load_goal_from_image
+from pydreamer.preprocessing import Preprocessor
 from pydreamer.tools import *
 
 
