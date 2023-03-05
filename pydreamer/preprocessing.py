@@ -28,12 +28,10 @@ def to_image(x: np.ndarray) -> np.ndarray:
     x = x.transpose(0, 1, 4, 2, 3)  # (T, B, H, W, C) => (T, B, C, H, W)
     return x
 
-def process_goal_img(x: np.ndarray, amp) -> np.ndarray:
-    if x.dtype == np.uint8:
-        x = x.astype(np.float32)
-        x = x / 255.0 - 0.5
-    if amp:
-        x = x.astype(np.float16)
+def process_goal_img(x: np.ndarray) -> np.ndarray:
+    assert x.dtype == np.uint8
+    x = x.astype(np.float32)
+    x = x / 255.0 - 0.5
     return x
 
 def remove_keys(data: dict, keys: list):
@@ -120,7 +118,7 @@ class Preprocessor:
 
         # goal image
 
-        batch['goal'] = process_goal_img(self.goal_image, self.amp)
+        batch['goal'] = process_goal_img(self.goal_image)
 
         # map
 

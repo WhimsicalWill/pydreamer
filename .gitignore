@@ -4,6 +4,9 @@ data/*
 log/
 logs/
 mlruns/
+logdir/
+results/atari/more_dream_gifs/
+notes.md
 
 _*.*
 .*
