@@ -192,16 +192,8 @@ class Dreamer(nn.Module):
         features = torch.stack(features)  # (H+1,TBI,D+S)
         actions = torch.stack(actions)  # (H,TBI,A)
 
-        # rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
-        # Instead of using the decoder, for LEXA we use cosine 
-        # distance to the goal embedding as a reward
-
-        # first initialize the RSSM
-        # then use the posterior to get the next feature from the goal embedding
-        # then use the negative cosine distance as the reward
-
+        # Reward computation using cosine similarity in feature space
         # goal_embed is the embedding of the fixed goal (E,)
-        # features is the features from the RSSM dream (H+1,TBI,D+S)
         with torch.no_grad():
             batch_size = features.shape[0] * features.shape[1]
             init_state = self.init_state(batch_size)                                                # ((H+1)*TBI,D+S)
