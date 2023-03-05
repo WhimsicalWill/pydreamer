@@ -90,12 +90,13 @@ class Dreamer(nn.Module):
         # Forward (world model)
 
         features, out_state = self.wm.forward(obs, in_state)
+        goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
 
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-        action_distr = self.ac.forward_actor(feature, obs['goal'])  # (1,B,A)
-        value = self.ac.forward_value(feature, obs['goal'])  # (1,B)
+        action_distr = self.ac.forward_actor(feature, goal_embed)  # (1,B,A)
+        value = self.ac.forward_value(feature, goal_embed)  # (1,B)
 
         metrics = dict(policy_value=value.detach().mean())
         return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
@@ -209,7 +210,7 @@ class Dreamer(nn.Module):
             batch_goal_embed = goal_embed.repeat(batch_size, 1)                                     # ((H+1)*TBI,E)
             _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
             goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1)*TBI,D+S)
-        rewards = -F.cosine_similarity(goal_features, features, dim=-1)                             # (H+1,TBI)
+        rewards = F.cosine_similarity(goal_features, features, dim=-1)                             # (H+1,TBI)
 
         terminals = self.wm.decoder.terminal.forward(features)                      # (H+1,TBI)
 
