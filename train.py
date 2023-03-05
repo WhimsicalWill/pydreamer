@@ -55,6 +55,11 @@ def run(conf):
     subprocesses: list[Process] = []
     artifact_uri: str = mlflow.active_run().info.artifact_uri  # type: ignore
 
+    # Load goal image
+
+    goal_img = Image.open(f'goal_images/{conf.goal_path}').resize((64, 64))
+    goal_image_np = np.array(goal_img).transpose((2, 0, 1))
+
     if conf.offline_data_dir:
         # Offline data
         online_data = False
@@ -81,6 +86,7 @@ def run(conf):
                                   policy_prefill=conf.generator_prefill_policy,
                                   num_steps_prefill=conf.generator_prefill_steps // conf.generator_workers,
                                   split_fraction=0.1,
+                                  goal_image=goal_image_np,
                                   )
                 input_dirs.append(f'{artifact_uri}/episodes/{i}')
                 eval_dirs.append(f'{artifact_uri}/episodes_eval/{i}')
@@ -95,6 +101,7 @@ def run(conf):
                                   policy_main='network',
                                   policy_prefill=conf.generator_prefill_policy,
                                   num_steps_prefill=conf.generator_prefill_steps // conf.generator_workers,
+                                  goal_image=goal_image_np,
                                   )
                 input_dirs.append(f'{artifact_uri}/episodes/{i}')
             subprocesses.append(p)
@@ -113,7 +120,8 @@ def run(conf):
                                   f'{artifact_uri}/episodes_eval/{i}',
                                   worker_id=conf.generator_workers + i,
                                   policy_main='network',
-                                  metrics_prefix='agent_eval')
+                                  metrics_prefix='agent_eval',
+                                  goal_image=goal_image_np,)
                 eval_dirs.append(f'{artifact_uri}/episodes_eval/{i}')
                 subprocesses.append(p)
 
@@ -147,11 +155,6 @@ def run(conf):
             # Prefill-only job
             info(f'Requested {conf.n_env_steps} steps, prefilled {data_train_stats.stats_steps} x{conf.env_action_repeat} - DONE')
             return
-
-    # Load goal image
-
-    goal_img = Image.open(f'goal_images/{conf.goal_path}').resize((64, 64))
-    goal_image_np = np.array(goal_img).transpose((2, 0, 1))
 
     # Data reader
 
@@ -554,6 +557,7 @@ def run_generator(env_id,
                   split_fraction=0.0,
                   metrics_prefix='agent',
                   log_mlflow_metrics=True,
+                  goal_image=None,
                   ):
     # Make sure generator subprcess logs to the same mlflow run
     os.environ['MLFLOW_RUN_ID'] = mlflow.active_run().info.run_id  # type: ignore
@@ -578,6 +582,7 @@ def run_generator(env_id,
                     split_fraction=split_fraction,
                     metrics_prefix=metrics_prefix,
                     metrics_gamma=conf.gamma,
+                    goal_image=goal_image,
                 ))
     p.start()
     if block:

@@ -44,6 +44,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
          metrics_prefix='agent',
          metrics_gamma=0.99,
          log_every=10,
+         goal_image=None,
          ):
 
     configure_logging(prefix=f'[GEN {worker_id}]', info_color=LogColorFormatter.GREEN)
@@ -84,11 +85,11 @@ def main(env_id='MiniGrid-MazeS11N-v0',
     if num_steps_prefill:
         # Start with prefill policy
         info(f'Prefill policy: {policy_prefill}')
-        policy = create_policy(policy_prefill, env, model_conf)
+        policy = create_policy(policy_prefill, env, model_conf, goal_image)
         is_prefill_policy = True
     else:
         info(f'Policy: {policy_main}')
-        policy = create_policy(policy_main, env, model_conf)
+        policy = create_policy(policy_main, env, model_conf, goal_image)
         is_prefill_policy = False
 
     # RUN
@@ -106,7 +107,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
 
         if is_prefill_policy and steps_saved >= num_steps_prefill:
             info(f'Switching to main policy: {policy_main}')
-            policy = create_policy(policy_main, env, model_conf)
+            policy = create_policy(policy_main, env, model_conf, goal_image)
             is_prefill_policy = False
 
         # Load network
@@ -268,7 +269,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
     info('Generator done.')
 
 
-def create_policy(policy_type: str, env, model_conf):
+def create_policy(policy_type: str, env, model_conf, goal_image):
     # TODO: add goal-conditioned network option here?
     if policy_type == 'network':
         conf = model_conf
@@ -281,7 +282,8 @@ def create_policy(policy_type: str, env, model_conf):
                                   map_categorical=conf.map_channels if conf.map_categorical else None,
                                   map_key=conf.map_key,
                                   action_dim=env.action_size,  # type: ignore
-                                  clip_rewards=conf.clip_rewards)
+                                  clip_rewards=conf.clip_rewards,
+                                  goal_image=goal_image)
         return NetworkPolicy(model, preprocess)
 
     if policy_type == 'random':
