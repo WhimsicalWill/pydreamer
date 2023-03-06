@@ -118,7 +118,8 @@ class Dreamer(nn.Module):
         # World model
 
         # Note that features is the concatenated (h, z) tensors from the RSSM
-        loss_model, features, states, out_state, metrics, tensors = \
+        # posts has shape (T,B,I,2*S), where 2*S is the size of the logits
+        loss_model, features, states, out_state, posts, metrics, tensors = \
             self.wm.training_step(obs,
                                   in_state,
                                   iwae_samples=iwae_samples,
@@ -142,7 +143,7 @@ class Dreamer(nn.Module):
         # Explore Behavior Training Step (explorer)
 
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, out_state[1])
+        expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, posts.detach())
         
         # Dream for a log sample.
 
@@ -317,4 +318,4 @@ class WorldModel(nn.Module):
                 tensors.update(**tensors_logprob)  # logprob_image, ...
                 tensors.update(**tensors_pred)  # image_pred, ...
 
-        return loss_model.mean(), features, states, out_state, metrics, tensors 
+        return loss_model.mean(), features, states, out_state, posts, metrics, tensors 

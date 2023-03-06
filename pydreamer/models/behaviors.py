@@ -28,7 +28,7 @@ class ImagBehavior(nn.Module):
         # TODO: we may want to add a separate config argument for actor_grad for explorer/achiever actors
 
     # TODO: maybe refactor this to train(), to be more intuitive and match LEXA better
-    def training_step(self, in_state_dream, H, reward_func, goal_embed=None):
+    def train(self, in_state_dream, H, reward_func, goal_embed=None):
         # Note features_dream includes the starting "real" features at features_dream[0]
         features_dream, actions_dream, rewards_dream, terminals_dream = \
             self.dream(in_state_dream, H, self.conf.actor_grad == 'dynamics', reward_func, goal_embed)  # (H+1,TBI,D)
@@ -41,8 +41,9 @@ class ImagBehavior(nn.Module):
     def dream(self, in_state: StateB, imag_horizon: int, reward_func, dynamics_gradients=False, goal_embed=None):
         features = []
         actions = []
+        priors = []
         state = in_state
-        self.wm.requires_grad_(False)  # Prevent dynamics gradiens from affecting world model
+        self.wm.requires_grad_(False)  # Prevent dynamics gradients from affecting world model
 
         for i in range(imag_horizon):
             feature = self.wm.core.to_feature(*state)
@@ -58,7 +59,8 @@ class ImagBehavior(nn.Module):
             actions.append(action)
             # When using dynamics gradients, this causes gradients in RSSM, which we don't want.
             # This is handled in backprop - the optimizer_model will ignore gradients from loss_actor.
-            _, state = self.wm.core.cell.forward_prior(action, None, state)
+            prior, state = self.wm.core.cell.forward_prior(action, None, state)
+            priors.append(prior)
 
         feature = self.wm.core.to_feature(*state)
         features.append(feature)
@@ -68,7 +70,13 @@ class ImagBehavior(nn.Module):
         if goal_embed:
             rewards = reward_func(features, goal_embed) # (H+1,TBI)
         else:
-            rewards = reward_func(features)             # (H+1,TBI)
+            # TODO: fix the length of rewards as a function of priors
+            # right now we only have the sample from the prior
+            # but we passed in the prior to plan2explore.training_step()
+            # however, this first prior is not a function of our actions
+            # this won't affect dynamics gradients; how does it affect reinforce?
+            # investigate how other versions have H+1 rewards but only H actions
+            rewards = reward_func(priors)               # (H,TBI)
         terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
 
         self.wm.requires_grad_(True)
@@ -88,7 +96,7 @@ class GCDreamerBehavior(ImagBehavior):
         return action_distr, value
 
     def training_step(self, in_state_dream, H, goal_embed):
-        return self.training_step(in_state_dream, H, self._cosine_similarity, goal_embed)
+        return self.train(in_state_dream, H, self._cosine_similarity, goal_embed)
 
     # Reward computation using cosine similarity in feature space
     def _cosine_similarity(self, features, goal_embed):
@@ -117,8 +125,8 @@ class Plan2Explore(ImagBehavior):
             'feat': conf.stoch_dim * conf.stoch_discrete + conf.deter_dim,
         }[self._conf.disag_target]
         kw = dict(
-            shape=size, layers=conf.disag_layers, units=conf.disag_units,
-            act=conf.act
+            shape=size, layers=conf.disag_layers,
+            units=conf.disag_units, act=conf.act
         )
         self.ensemble = nn.ModuleList([DenseHead(**kw) for _ in range(conf.disag_models)])
 
@@ -128,30 +136,33 @@ class Plan2Explore(ImagBehavior):
         return action_distr, value
 
     # if targets are not provided, then we assume we are just logging
-    def training_step(self, in_state_dream, H, targets=None):
+    def training_step(self, in_state_dream, H, posts=None):
         # TODO: do the models in the ensemble not take action input?
         # Recall that in_state_dream has shape (h, z) = ((TBI,D), (TBI,S)) 
         # TODO: reshape in_state_dream to separate time dimension
-        if targets:
-            self._train_ensemble(in_state_dream, targets)
-        return self.training_step(in_state_dream, H, self._intrinsic_reward)
+        if posts:
+            self._train_ensemble(posts)
+        return self.train(in_state_dream, H, self._intrinsic_reward)
 
-    # Reward computation using disagreement in feature space
-    def _intrinsic_reward(self, features):
-        pred = torch.stack([head(features) for head in self.ensemble], dim=0)
+    # Reward computation using disagreement in the space of the prior predictions
+    def _intrinsic_reward(self, priors):
+        pred = torch.stack([head(priors) for head in self.ensemble], dim=0)
         variance = torch.var(pred, dim=0)
         disagreement = torch.mean(variance)
         reward = self._conf.expl_intr_scale * disagreement
         return reward
 
-    def _train_ensemble(self, inputs, targets):
+    def _train_ensemble(self, posts):
+        # posts are shape (T,B,I,2S) where I=1
         if self._conf.disag_offset:
-            targets = targets[:, self._conf.disag_offset:]
-            inputs = inputs[:, :-self._conf.disag_offset]
+            targets = posts[:, self._conf.disag_offset:]
+            inputs = posts[:, :-self._conf.disag_offset]
+        inputs = flatten_batch(inputs) # (T,B,I,2S) => (TBI,2S)
+        targets = flatten_batch(targets) # (T,B,I,2S) => (TBI,2S)
         preds = torch.stack([head(inputs) for head in self.ensemble], dim=0)
         likes = [torch.mean(preds.log_prob(targets), dim=-1)]
         loss = -torch.sum(likes)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        # return {'model_loss': loss.item()}
+        return {'ensemble_loss': loss.item()}
