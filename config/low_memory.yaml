@@ -110,6 +110,19 @@ low_memory:
   env_time_limit: 0
   env_no_terminal: False
 
+  # Exploration
+  expl_behavior: 'plan2explore'
+  expl_every_ep: 2
+  expl_until: -100
+  expl_extr_scale: 0.0
+  expl_intr_scale: 1.0
+  disag_target: 'stoch'
+  disag_log: True
+  disag_models: 10
+  disag_offset: 1
+  disag_layers: 4
+  disag_units: 400
+
 minigrid:
   env_id: MiniGrid-MazeS11N-v0
   # Features

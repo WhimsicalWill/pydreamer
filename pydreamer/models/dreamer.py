@@ -31,17 +31,9 @@ class Dreamer(nn.Module):
 
         # Pass World Model into task_behavior and explore_behavior
 
-        self._task_behavior = {
-            "dreamer": ImagBehavior(conf, state_dim, self.wm),
-            # "gcdreamer": gcdreamer_imag.GCDreamerBehavior(conf, state_dim, self.wm),
-        }[conf.task_behavior]
-
-        reward = lambda f, s, a: self.wm.heads['reward'](f).mode()
-
-        self._expl_behavior = {
-            "greedy": lambda: self._task_behavior,
-            "plan2explore": lambda: Plan2Explore(conf, self.wm, reward),
-        }[conf.expl_behavior]()
+        # TODO: change arguments?
+        self._task_behavior = GCDreamerBehavior(conf, state_dim, self.wm)
+        self._expl_behavior = Plan2Explore(conf, self.wm)
 
         # Map probe
 
@@ -77,6 +69,7 @@ class Dreamer(nn.Module):
     def forward(self,
                 obs: Dict[str, Tensor],
                 in_state: Any,
+                behavior='achiever',
                 ) -> Tuple[D.Distribution, Any, Dict]:
         assert 'action' in obs, 'Observation should contain previous action'
         act_shape = obs['action'].shape
@@ -89,8 +82,12 @@ class Dreamer(nn.Module):
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-        action_distr = self.ac.forward_actor(feature)  # (1,B,A)
-        value = self.ac.forward_value(feature)  # (1,B)
+
+        if behavior == 'achiever':
+            action_distr, value = self._task_behavior(features)
+        else:
+            action_distr, value = self._expl_behavior(features)
+
 
         metrics = dict(policy_value=value.detach().mean())
         return action_distr, out_state, metrics
