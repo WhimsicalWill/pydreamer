@@ -3,11 +3,12 @@ import torch.nn as nn
 
 from .a2c import *
 from .networks import *
+from .functions import *
 
 class ImagBehavior(nn.Module):
 
     def __init__(self, conf, world_model, use_gc=False):
-        
+        # TODO: we may want to add a separate config argument for actor_grad for explorer/achiever actors
         self.wm = world_model
 
         # Actor critic
@@ -25,9 +26,6 @@ class ImagBehavior(nn.Module):
                               actor_dist=conf.actor_dist,
                               )
 
-        # TODO: we may want to add a separate config argument for actor_grad for explorer/achiever actors
-
-    # TODO: maybe refactor this to train(), to be more intuitive and match LEXA better
     def train(self, in_state_dream, H, reward_func, goal_embed=None):
         # Note features_dream includes the starting "real" features at features_dream[0]
         features_dream, actions_dream, rewards_dream, terminals_dream = \
@@ -66,17 +64,12 @@ class ImagBehavior(nn.Module):
         features.append(feature)
         features = torch.stack(features)  # (H+1,TBI,D)
         actions = torch.stack(actions)  # (H,TBI,A)
+        priors = torch.stack(priors)  # (H,TBI,2S)
 
         if goal_embed:
             rewards = reward_func(features, goal_embed) # (H+1,TBI)
         else:
-            # TODO: fix the length of rewards as a function of priors
-            # right now we only have the sample from the prior
-            # but we passed in the prior to plan2explore.training_step()
-            # however, this first prior is not a function of our actions
-            # this won't affect dynamics gradients; how does it affect reinforce?
-            # investigate how other versions have H+1 rewards but only H actions
-            rewards = reward_func(priors)               # (H,TBI)
+            rewards = reward_func(priors)               # (H+1,TBI)
         terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
 
         self.wm.requires_grad_(True)
@@ -142,15 +135,20 @@ class Plan2Explore(ImagBehavior):
         # TODO: reshape in_state_dream to separate time dimension
         if posts:
             self._train_ensemble(posts)
-        return self.train(in_state_dream, H, self._intrinsic_reward)
+        reward_func = lambda x: self._intrinsic_reward(x, flatten_batch(posts))
+        return self.train(in_state_dream, H, reward_func)
 
     # Reward computation using disagreement in the space of the prior predictions
-    def _intrinsic_reward(self, priors):
+    def _intrinsic_reward(self, priors, posts):
+        # posts (TBI,2S), priors (H,TBI,2S)
+        self.ensemble.requires_grad_(False)  # Prevent dynamics gradients from affecting ensemble
+        priors = torch.cat([posts.unsqueeze(0), priors], dim=0) # (H+1,TBI,2S)
         pred = torch.stack([head(priors) for head in self.ensemble], dim=0)
         variance = torch.var(pred, dim=0)
         disagreement = torch.mean(variance)
         reward = self._conf.expl_intr_scale * disagreement
-        return reward
+        self.ensemble.requires_grad_(True)
+        return reward # (H+1,TBI)
 
     def _train_ensemble(self, posts):
         # posts are shape (T,B,I,2S) where I=1

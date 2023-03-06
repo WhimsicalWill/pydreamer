@@ -49,7 +49,7 @@ class Dreamer(nn.Module):
     
     def get_goal_embedding(self, goal_image):
         goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (T,B,E)
-        return goal_embed
+        return goal_embed.detach()
 
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
         optimizer_wm = torch.optim.AdamW(self.wm.parameters(), lr=lr, eps=eps)
