@@ -9,25 +9,29 @@ class Plan2Explore(nn.Module):
     '''
     Defines an ensemble of models used for exploration.
     '''
-    def __init__(self, config, world_model, reward=None):
-        self._config = config
+    def __init__(self,
+                 conf, 
+                 world_model, 
+                 reward=None
+                 ):
+        self._conf = conf
         self._reward = reward
-        self._behavior = ImagBehavior(config, world_model)
+        self._behavior = ImagBehavior(conf, world_model)
         self.actor = self._behavior.actor
         size = {
-            'embed': 32 * config.cnn_depth,
-            'stoch': config.dyn_stoch,
-            'deter': config.dyn_deter,
-            'feat': config.dyn_stoch + config.dyn_deter,
-        }[self._config.disag_target]
+            'embed': 32 * conf.cnn_depth,
+            'stoch': conf.dyn_stoch,
+            'deter': conf.dyn_deter,
+            'feat': conf.dyn_stoch + conf.dyn_deter,
+        }[self._conf.disag_target]
         kw = dict(
-            shape=size, layers=config.disag_layers, units=config.disag_units,
-            act=config.act
+            shape=size, layers=conf.disag_layers, units=conf.disag_units,
+            act=conf.act
         )
-        self._networks = nn.ModuleList([DenseHead(**kw) for _ in range(config.disag_models)])
+        self._networks = nn.ModuleList([DenseHead(**kw) for _ in range(conf.disag_models)])
         self.optimizer = torch.optim.Adam(
-            self._networks.parameters(), lr=config.model_lr, 
-            weight_decay=config.weight_decay
+            self._networks.parameters(), lr=conf.model_lr, 
+            weight_decay=conf.weight_decay
         )
 
     def train(self, start, feat, embed, kl):
@@ -37,26 +41,25 @@ class Plan2Explore(nn.Module):
             'stoch': start['stoch'],
             'deter': start['deter'],
             'feat': feat,
-        }[self._config.disag_target]
+        }[self._conf.disag_target]
         metrics.update(self._train_ensemble(feat, target))
         metrics.update(self._behavior.train(start, self._intrinsic_reward)[-1])
         return None, metrics
 
-    # K is the number of models in the ensemble, S is the size of the disag_target vector
     def _intrinsic_reward(self, feat, state, action):
-        pred = torch.stack([head(feat) for head in self._networks], dim=0) # (K, S)
-        variance = torch.var(pred, dim=0) # (S)
+        pred = torch.stack([head(feat) for head in self._networks], dim=0)
+        variance = torch.var(pred, dim=0)
         disagreement = torch.mean(variance)
-        reward = self._config.expl_intr_scale * disagreement
-        if self._config.expl_extr_scale:
-            reward += self._config.expl_extr_scale * \
+        reward = self._conf.expl_intr_scale * disagreement
+        if self._conf.expl_extr_scale:
+            reward += self._conf.expl_extr_scale * \
                       self._reward(feat, state, action)
         return reward
 
     def _train_ensemble(self, inputs, targets):
-        if self._config.disag_offset:
-            targets = targets[:, self._config.disag_offset:]
-            inputs = inputs[:, :-self._config.disag_offset]
+        if self._conf.disag_offset:
+            targets = targets[:, self._conf.disag_offset:]
+            inputs = inputs[:, :-self._conf.disag_offset]
         targets.detach()
         inputs.detach()
         preds = torch.stack([head(inputs) for head in self._networks], dim=0)
@@ -65,7 +68,7 @@ class Plan2Explore(nn.Module):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        return {'disagreement': loss.item()} # TODO: what should this return?
+        return {'model_loss': loss.item()}
 
     def act(self, feat, *args):
         return self._actor(feat)

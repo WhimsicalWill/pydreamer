@@ -114,9 +114,10 @@ def mlflow_load_checkpoint(model, optimizers=tuple(), artifact_path='checkpoints
     import mlflow
     from mlflow.tracking.client import MlflowClient
     import torch
+
     with tempfile.TemporaryDirectory() as tmpdir:
         client = MlflowClient()
-        run_id = mlflow.active_run().info.run_id  # type: ignore
+        run_id = mlflow.active_run().info.run_id
         try:
             path = client.download_artifacts(run_id, artifact_path, tmpdir)
             info(f'Downloading artifact {artifact_path} from run {run_id} ...')
@@ -127,12 +128,13 @@ def mlflow_load_checkpoint(model, optimizers=tuple(), artifact_path='checkpoints
         try:
             
             checkpoint = torch.load(path, map_location=map_location)
-        except:
-            exception('Error reading checkpoint')
+        except Exception as e:
+            exception(f"Error loading checkpoint from {path}: {e}")
             return None
         model.load_state_dict(checkpoint['model_state_dict'])
         for i, opt in enumerate(optimizers):
             opt.load_state_dict(checkpoint[f'optimizer_{i}_state_dict'])
+        info(f"Loaded checkpoint from {path} epoch {checkpoint['epoch']}")
         return checkpoint['epoch']
 
 

@@ -114,6 +114,19 @@ low_memory:
   env_time_limit: 0
   env_no_terminal: False
 
+  # Exploration
+  expl_behavior: 'plan2explore'
+  expl_every_ep: 2
+  expl_until: -100
+  expl_extr_scale: 0.0
+  expl_intr_scale: 1.0
+  disag_target: 'stoch'
+  disag_log: True
+  disag_models: 10
+  disag_offset: 1
+  disag_layers: 4
+  disag_units: 400
+
 minigrid:
   env_id: MiniGrid-MazeS11N-v0
   # Features
@@ -201,16 +214,10 @@ crafter:
   action_dim: 17
   generator_prefill_steps: 200
 
-# minecraft:
-#   env_id: minecraft_diamond
-#   envs.amount: 16
-#   run:
-#     script: train_save
-#     eval_fill: 1e5
-#     train_ratio: 16
-#     log_keys_max: '^log_inventory.*'
-#   encoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath|reward', cnn_keys: 'image'}
-#   decoder: {mlp_keys: 'inventory|inventory_max|equipped|health|hunger|breath', cnn_keys: 'image'}
+minecraft:
+  env_id: MineRLObtainDiamond-v0
+  action_dim: 12
+  generator_prefill_steps: 1000
 
 dmc:
   env_id: DMC-quadruped_run

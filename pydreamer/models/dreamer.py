@@ -14,6 +14,8 @@ from .decoders import *
 from .rnn import *
 from .rssm import *
 from .probes import *
+from .exploration import *
+from .behaviors import *
 
 
 class Dreamer(nn.Module):
@@ -29,20 +31,11 @@ class Dreamer(nn.Module):
 
         self.wm = WorldModel(conf)
 
-        # Actor critic
+        # Pass World Model into task_behavior and explore_behavior
 
-        embed_size = self.wm.encoder.encoder_image.out_size
-        self.ac = ActorCritic(in_dim=state_dim,
-                              embed_size=embed_size,
-                              out_actions=conf.action_dim,
-                              layer_norm=conf.layer_norm,
-                              gamma=conf.gamma,
-                              lambda_gae=conf.lambda_gae,
-                              entropy_weight=conf.entropy,
-                              target_interval=conf.target_interval,
-                              actor_grad=conf.actor_grad,
-                              actor_dist=conf.actor_dist,
-                              )
+        # TODO: change arguments?
+        self._task_behavior = GCDreamerBehavior(conf, state_dim, self.wm)
+        self._expl_behavior = Plan2Explore(conf, self.wm)
 
         # Map probe
 
@@ -82,6 +75,7 @@ class Dreamer(nn.Module):
     def forward(self,
                 obs: Dict[str, Tensor],
                 in_state: Any,
+                behavior='achiever',
                 ) -> Tuple[D.Distribution, Any, Dict]:
         assert 'action' in obs, 'Observation should contain previous action'
         act_shape = obs['action'].shape
@@ -95,8 +89,12 @@ class Dreamer(nn.Module):
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-        action_distr = self.ac.forward_actor(feature, goal_embed)  # (1,B,A)
-        value = self.ac.forward_value(feature, goal_embed)  # (1,B)
+
+        if behavior == 'achiever':
+            action_distr, value = self._task_behavior(features)
+        else:
+            action_distr, value = self._expl_behavior(features)
+
 
         metrics = dict(policy_value=value.detach().mean())
         return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
@@ -134,16 +132,16 @@ class Dreamer(nn.Module):
         metrics.update(**metrics_probe)
         tensors.update(**tensors_probe)
 
-        # Policy
-
+        # TODO: should this be copied if it's used twice?
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        # Note features_dream includes the starting "real" features at features_dream[0]
-        features_dream, actions_dream, rewards_dream, terminals_dream = \
-            self.dream(in_state_dream, H, goal_embed, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
-        (loss_actor, loss_critic), metrics_ac, tensors_ac = \
-            self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, goal_embed)
-        metrics.update(**metrics_ac)
-        tensors.update(policy_value=unflatten_batch(tensors_ac['value'][0], (T, B, I)).mean(-1))
+
+        # Explore Behavior Training Step (explorer)
+
+        loss_actor, loss_critic = self._expl_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
+        
+        # Task Behavior Training Step (achiever)
+        
+        loss_actor, loss_critic = self._task_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
 
         # Dream for a log sample.
 
@@ -166,6 +164,8 @@ class Dreamer(nn.Module):
                 assert dream_tensors['action_pred'].shape == obs['action'].shape
                 assert dream_tensors['image_pred'].shape == obs['image'].shape
 
+        # TODO: modify metrics, tensors so that we have copies for explorer and achiever
+        # TODO: also determine how metrics are logged and what they're used for
         return (loss_model, loss_probe, loss_actor, loss_critic), out_state, metrics, tensors, dream_tensors
 
     def dream(self, in_state: StateB, imag_horizon: int, goal_embed, dynamics_gradients=False):

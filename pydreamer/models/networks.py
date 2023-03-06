@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.distributions as td
 
+# Define the DenseHead class (adapted from LEXA)
 class DenseHead(nn.Module):
     '''
     Dense head for the ensemble model.
