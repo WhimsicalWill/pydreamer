@@ -91,12 +91,6 @@ class ConvEncoder(nn.Module):
             nn.Flatten()
         )
 
-    @property
-    def out_size(self):
-        x = torch.zeros((1, self.in_channels, 64, 64))
-        out = self.model(x)
-        return out.shape[1]
-
     def forward(self, x):
         x, bd = flatten_batch(x, 3)
         y = self.model(x)

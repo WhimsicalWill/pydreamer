@@ -59,6 +59,7 @@ def run(conf):
 
     goal_img = Image.open(f'goal_images/{conf.goal_path}').resize((64, 64))
     goal_image_np = np.array(goal_img).transpose((2, 0, 1))
+
     if conf.offline_data_dir:
         # Offline data
         online_data = False

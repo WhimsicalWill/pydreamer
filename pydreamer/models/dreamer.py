@@ -14,7 +14,6 @@ from .decoders import *
 from .rnn import *
 from .rssm import *
 from .probes import *
-from .exploration import *
 from .behaviors import *
 
 
@@ -33,7 +32,6 @@ class Dreamer(nn.Module):
 
         # Pass World Model into task_behavior and explore_behavior
 
-        # TODO: change arguments?
         self._task_behavior = GCDreamerBehavior(conf, state_dim, self.wm)
         self._expl_behavior = Plan2Explore(conf, self.wm)
 
@@ -56,9 +54,14 @@ class Dreamer(nn.Module):
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
         optimizer_wm = torch.optim.AdamW(self.wm.parameters(), lr=lr, eps=eps)
         optimizer_probe = torch.optim.AdamW(self.probe_model.parameters(), lr=lr, eps=eps)
-        optimizer_actor = torch.optim.AdamW(self.ac.actor.parameters(), lr=lr_actor or lr, eps=eps)
-        optimizer_critic = torch.optim.AdamW(self.ac.critic.parameters(), lr=lr_critic or lr, eps=eps)
-        return optimizer_wm, optimizer_probe, optimizer_actor, optimizer_critic
+        optimizer_task_actor = torch.optim.AdamW(self._task_behavior.ac.actor.parameters(), lr=lr_actor, eps=eps)
+        optimizer_task_critic = torch.optim.AdamW(self._task_behavior.ac.critic.parameters(), lr=lr_critic, eps=eps)
+        optimizer_expl_actor = torch.optim.AdamW(self._expl_behavior.ac.actor.parameters(), lr=lr_actor, eps=eps)
+        optimizer_expl_critic = torch.optim.AdamW(self._expl_behavior.ac.critic.parameters(), lr=lr_critic, eps=eps)
+        optimizer_expl_ensemble = torch.optim.AdamW(self._expl_behavior.ensemble.parameters(), lr=lr, eps=eps)
+
+        return optimizer_wm, optimizer_probe, optimizer_task_actor, optimizer_task_critic, \
+            optimizer_expl_actor, optimizer_expl_critic, optimizer_expl_ensemble
 
     def grad_clip(self, grad_clip, grad_clip_ac=None):
         grad_metrics = {
@@ -75,7 +78,7 @@ class Dreamer(nn.Module):
     def forward(self,
                 obs: Dict[str, Tensor],
                 in_state: Any,
-                behavior='achiever',
+                behavior: str,
                 ) -> Tuple[D.Distribution, Any, Dict]:
         assert 'action' in obs, 'Observation should contain previous action'
         act_shape = obs['action'].shape
@@ -114,6 +117,7 @@ class Dreamer(nn.Module):
 
         # World model
 
+        # Note that features is the concatenated (h, z) tensors from the RSSM
         loss_model, features, states, out_state, metrics, tensors = \
             self.wm.training_step(obs,
                                   in_state,
@@ -130,16 +134,16 @@ class Dreamer(nn.Module):
 
         # TODO: should states be copied if it's used twice? Probably not, but I need to trace it.
 
-        # Explore Behavior Training Step (explorer)
-
-        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        loss_actor, loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, out_state[1])
-        
         # Task Behavior Training Step (achiever)
         
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        loss_actor, loss_critic, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
+        task_loss_actor, task_loss_critic, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
 
+        # Explore Behavior Training Step (explorer)
+
+        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+        expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, out_state[1])
+        
         # Dream for a log sample.
 
         dream_tensors = {}
@@ -164,7 +168,8 @@ class Dreamer(nn.Module):
 
         # TODO: modify metrics, tensors so that we have copies for explorer and achiever
         # TODO: also determine how metrics are logged and what they're used for
-        return (loss_model, loss_probe, loss_actor, loss_critic), out_state, metrics, tensors, dream_tensors
+        return (loss_model, loss_probe, expl_loss_actor, expl_loss_critic, task_loss_actor, task_loss_critic), \
+            out_state, metrics, tensors, dream_tensors
     
     def __str__(self):
         # Short representation

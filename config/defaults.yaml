@@ -57,7 +57,7 @@ defaults:
 
   # Goal
   goal_path: many_trees.jpg
-
+  
   # Eval
   test_batches: 61  # For unbiased test needs to be enough to cover full episodes
   test_batch_size: 10  # Smaller for faster test

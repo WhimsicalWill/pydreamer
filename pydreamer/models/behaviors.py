@@ -6,13 +6,15 @@ from .networks import *
 
 class ImagBehavior(nn.Module):
 
-    def __init__(self, conf, state_dim, world_model):
+    def __init__(self, conf, world_model, use_gc=False):
         
         self.wm = world_model
 
         # Actor critic
 
+        state_dim = conf.deter_dim + conf.stoch_dim * (conf.stoch_discrete or 1)
         self.ac = ActorCritic(in_dim=state_dim,
+                              goal_dim=self.wm.encoder.out_dim if use_gc else 0,
                               out_actions=conf.action_dim,
                               layer_norm=conf.layer_norm,
                               gamma=conf.gamma,
@@ -23,8 +25,9 @@ class ImagBehavior(nn.Module):
                               actor_dist=conf.actor_dist,
                               )
 
-        # TODO: we may want to add a separate config argment for actor_grad for explorer/achiever actors
+        # TODO: we may want to add a separate config argument for actor_grad for explorer/achiever actors
 
+    # TODO: maybe refactor this to train(), to be more intuitive and match LEXA better
     def training_step(self, in_state_dream, H, reward_func, goal_embed=None):
         # Note features_dream includes the starting "real" features at features_dream[0]
         features_dream, actions_dream, rewards_dream, terminals_dream = \
@@ -77,8 +80,7 @@ class GCDreamerBehavior(ImagBehavior):
     '''
 
     def __init__(self, conf, state_dim, world_model):
-        super(GCDreamerBehavior, self).__init__(conf, state_dim, world_model)
-        # TODO: must provide the out_dim for ImagBehavior (for both GCDreamer and Plan2Explore)
+        super(GCDreamerBehavior, self).__init__(conf, world_model, True)
 
     def forward(self, feature, goal_embed):
         action_distr = self.ac.forward_actor(feature, goal_embed)  # (1,B,A)
@@ -99,65 +101,54 @@ class GCDreamerBehavior(ImagBehavior):
             batch_goal_embed = goal_embed.repeat(batch_size, 1)                                     # ((H+1)*TBI,E)
             _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
             goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1)*TBI,D+S)
-        rewards = F.cosine_similarity(goal_features, features, dim=-1)                             # (H+1,TBI)
+        rewards = F.cosine_similarity(goal_features, features, dim=-1)                              # (H+1,TBI)
 
 class Plan2Explore(ImagBehavior):
     '''
     Defines an ensemble of models used for exploration
     '''
-    def __init__(self,
-                 conf, 
-                 world_model, 
-                 reward=None
-                 ):
-        super(Plan2Explore, self).__init__(conf, world_model)
+    def __init__(self, conf, world_model):
+        super(Plan2Explore, self).__init__(conf, world_model, False)
         self._conf = conf
-        # TODO: if we want to incorporate external rewards, use reward decoder
-        # self._reward = reward
-        self.actor = self._behavior.actor
         size = {
             'embed': 32 * conf.cnn_depth,
-            'stoch': conf.dyn_stoch,
-            'deter': conf.dyn_deter,
-            'feat': conf.dyn_stoch + conf.dyn_deter,
+            'stoch': conf.stoch_dim * conf.stoch_discrete,
+            'deter': conf.deter_dim,
+            'feat': conf.stoch_dim * conf.stoch_discrete + conf.deter_dim,
         }[self._conf.disag_target]
         kw = dict(
             shape=size, layers=conf.disag_layers, units=conf.disag_units,
             act=conf.act
         )
-        self._networks = nn.ModuleList([DenseHead(**kw) for _ in range(conf.disag_models)])
-        self.optimizer = torch.optim.Adam(
-            self._networks.parameters(), lr=conf.model_lr, 
-            weight_decay=conf.weight_decay
-        )
+        self.ensemble = nn.ModuleList([DenseHead(**kw) for _ in range(conf.disag_models)])
 
-    def forward(self, feature):
-        action_distr = self.ac.forward_actor(feature)  # (1,B,A)
-        value = self.ac.forward_value(feature)  # (1,B)
+    def forward(self, features):
+        action_distr = self.ac.forward_actor(features)  # (1,B,A)
+        value = self.ac.forward_value(features)  # (1,B)
         return action_distr, value
 
     # if targets are not provided, then we assume we are just logging
     def training_step(self, in_state_dream, H, targets=None):
         # TODO: do the models in the ensemble not take action input?
+        # Recall that in_state_dream has shape (h, z) = ((TBI,D), (TBI,S)) 
+        # TODO: reshape in_state_dream to separate time dimension
         if targets:
             self._train_ensemble(in_state_dream, targets)
         return self.training_step(in_state_dream, H, self._intrinsic_reward)
 
+    # Reward computation using disagreement in feature space
     def _intrinsic_reward(self, features):
-        pred = torch.stack([head(features) for head in self._networks], dim=0)
+        pred = torch.stack([head(features) for head in self.ensemble], dim=0)
         variance = torch.var(pred, dim=0)
         disagreement = torch.mean(variance)
         reward = self._conf.expl_intr_scale * disagreement
         return reward
 
     def _train_ensemble(self, inputs, targets):
-        # TODO: debug the disag_offset, which determines how many steps ahead our ensemble is predicting
-        # For predicting the next state, I think it should be 0
-
-        # if self._conf.disag_offset:
-        #     targets = targets[:, self._conf.disag_offset:]
-        #     inputs = inputs[:, :-self._conf.disag_offset]
-        preds = torch.stack([head(inputs) for head in self._networks], dim=0)
+        if self._conf.disag_offset:
+            targets = targets[:, self._conf.disag_offset:]
+            inputs = inputs[:, :-self._conf.disag_offset]
+        preds = torch.stack([head(inputs) for head in self.ensemble], dim=0)
         likes = [torch.mean(preds.log_prob(targets), dim=-1)]
         loss = -torch.sum(likes)
         self.optimizer.zero_grad()

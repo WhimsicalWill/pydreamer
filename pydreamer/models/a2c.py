@@ -12,7 +12,7 @@ class ActorCritic(nn.Module):
 
     def __init__(self,
                  in_dim,
-                 embed_size,
+                 goal_dim,
                  out_actions,
                  hidden_dim=400,
                  hidden_layers=4,
