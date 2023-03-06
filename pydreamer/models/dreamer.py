@@ -84,18 +84,15 @@ class Dreamer(nn.Module):
         # Forward (world model)
 
         features, out_state = self.wm.forward(obs, in_state)
-        goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
 
         # Forward (actor critic)
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
-
         if behavior == 'achiever':
-            action_distr, value = self._task_behavior(features)
+            goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
+            action_distr, value = self._task_behavior(features, goal_embed)
         else:
             action_distr, value = self._expl_behavior(features)
-
-
         metrics = dict(policy_value=value.detach().mean())
         return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
 
@@ -125,23 +122,23 @@ class Dreamer(nn.Module):
                                   do_image_pred=do_image_pred)
         goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
 
-
         # Map probe
 
         loss_probe, metrics_probe, tensors_probe = self.probe_model.training_step(features.detach(), obs)
         metrics.update(**metrics_probe)
         tensors.update(**tensors_probe)
 
-        # TODO: should this be copied if it's used twice?
-        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+        # TODO: should states be copied if it's used twice? Probably not, but I need to trace it.
 
         # Explore Behavior Training Step (explorer)
 
-        loss_actor, loss_critic = self._expl_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
+        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+        loss_actor, loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, out_state[1])
         
         # Task Behavior Training Step (achiever)
         
-        loss_actor, loss_critic = self._task_behavior.training_step(features, obs, in_state_dream, iwae_samples, imag_horizon)
+        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+        loss_actor, loss_critic, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
 
         # Dream for a log sample.
 
@@ -152,9 +149,10 @@ class Dreamer(nn.Module):
                 # and here for inspection purposes we only dream from first step, so it's (H*B).
                 # Oh, and we set here H=T-1, so we get (T,B), and the dreamed experience aligns with actual.
                 in_state_dream: StateB = map_structure(states, lambda x: x.detach()[0, :, 0])  # type: ignore  # (T,B,I) => (B)
-                features_dream, actions_dream, rewards_dream, terminals_dream = self.dream(in_state_dream, T - 1, goal_embed)  # H = T-1
+                _, features_dream, actions_dream, rewards_dream, terminals_dream, tensors_ac = \
+                    self._expl_behavior.training_step(in_state_dream, T - 1, goal_embed)
                 image_dream = self.wm.decoder.image.forward(features_dream)
-                _, _, tensors_ac = self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, goal_embed, log_only=True)
+
                 # The tensors are intentionally named same as in tensors, so the logged npz looks the same for dreamed or not
                 dream_tensors = dict(action_pred=torch.cat([obs['action'][:1], actions_dream]),  # first action is real from previous step
                                      reward_pred=rewards_dream,
@@ -167,48 +165,7 @@ class Dreamer(nn.Module):
         # TODO: modify metrics, tensors so that we have copies for explorer and achiever
         # TODO: also determine how metrics are logged and what they're used for
         return (loss_model, loss_probe, loss_actor, loss_critic), out_state, metrics, tensors, dream_tensors
-
-    def dream(self, in_state: StateB, imag_horizon: int, goal_embed, dynamics_gradients=False):
-        features = []
-        actions = []
-        state = in_state
-        self.wm.requires_grad_(False)  # Prevent dynamics gradiens from affecting world model
-
-        for i in range(imag_horizon):
-            feature = self.wm.core.to_feature(*state)
-            action_dist = self.ac.forward_actor(feature, goal_embed)
-            if dynamics_gradients:
-                action = action_dist.rsample()
-            else:
-                action = action_dist.sample()
-            features.append(feature)
-            actions.append(action)
-            # When using dynamics gradients, this causes gradients in RSSM, which we don't want.
-            # This is handled in backprop - the optimizer_model will ignore gradients from loss_actor.
-            _, state = self.wm.core.cell.forward_prior(action, None, state)
-
-        feature = self.wm.core.to_feature(*state)
-        features.append(feature)
-        features = torch.stack(features)  # (H+1,TBI,D+S)
-        actions = torch.stack(actions)  # (H,TBI,A)
-
-        # Reward computation using cosine similarity in feature space
-        # goal_embed is the embedding of the fixed goal (E,)
-        with torch.no_grad():
-            batch_size = features.shape[0] * features.shape[1]
-            init_state = self.init_state(batch_size)                                                # ((H+1)*TBI,D+S)
-            action = torch.zeros(batch_size, self.conf.action_dim).to(self.device)                  # ((H+1)*TBI,A)
-            reset_mask = torch.zeros(batch_size, 1).to(self.device)                                 # ((H+1)*TBI,1)
-            batch_goal_embed = goal_embed.repeat(batch_size, 1)                                     # ((H+1)*TBI,E)
-            _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
-            goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1)*TBI,D+S)
-        rewards = F.cosine_similarity(goal_features, features, dim=-1)                             # (H+1,TBI)
-
-        terminals = self.wm.decoder.terminal.forward(features)                      # (H+1,TBI)
-
-        self.wm.requires_grad_(True)
-        return features, actions, rewards, terminals
-
+    
     def __str__(self):
         # Short representation
         s = []
