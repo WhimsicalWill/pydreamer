@@ -41,7 +41,9 @@ torch.backends.cudnn.benchmark = True  # type: ignore
 def run(conf):
     mlflow_start_or_resume(conf.run_name or conf.resume_id, conf.resume_id)
     try:
-        mlflow.log_params({k: v for k, v in vars(conf).items() if not len(repr(v)) > 250})  # filter too long
+        params = list(vars(conf).items())
+        mlflow.log_params({k: v for k, v in params[:len(params)//2] if not len(repr(v)) > 250})  # filter too long
+        mlflow.log_params({k: v for k, v in params[len(params)//2:] if not len(repr(v)) > 250})  # filter too long
     except Exception as e:
         # This happens when resuming and config has different parameters - it's fine
         error(f'ERROR in mlflow.log_params: {repr(e)}')

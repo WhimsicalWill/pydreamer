@@ -34,7 +34,7 @@ class ActorCritic(nn.Module):
         self.actor_grad = actor_grad
         self.actor_dist = actor_dist
 
-        gc_in_dim = in_dim + embed_size
+        gc_in_dim = in_dim + goal_dim
         actor_out_dim = out_actions if actor_dist == 'onehot' else 2 * out_actions
 
         self.actor = MLP(gc_in_dim, actor_out_dim, hidden_dim, hidden_layers, layer_norm)
@@ -43,9 +43,10 @@ class ActorCritic(nn.Module):
         self.critic_target.requires_grad_(False)
         self.train_steps = 0
 
-    def forward_actor(self, features: Tensor, goal_embed: Tensor) -> D.Distribution:
-        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
-        y = self.actor.forward(x).float()  # .float() to force float32 on AMP
+    def forward_actor(self, features: Tensor, goal_embed: Tensor = None) -> D.Distribution:
+        if goal_embed is not None:
+            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+        y = self.actor.forward(features).float()  # .float() to force float32 on AMP
         
         if self.actor_dist == 'onehot':
             return D.OneHotCategorical(logits=y)
@@ -58,9 +59,10 @@ class ActorCritic(nn.Module):
 
         assert False, self.actor_dist
 
-    def forward_value(self, features: Tensor, goal_embed: Tensor) -> Tensor:
-        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
-        y = self.critic.forward(x)
+    def forward_value(self, features: Tensor, goal_embed: Tensor = None) -> Tensor:
+        if goal_embed is not None:
+            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+        y = self.critic.forward(features)
         return y
 
     def training_step(self,
@@ -83,8 +85,11 @@ class ActorCritic(nn.Module):
         # GAE from https://arxiv.org/abs/1506.02438 eq (16)
         #   advantage_gae[t] = advantage[t] + (gamma lambda) advantage[t+1] + (gamma lambda)^2 advantage[t+2] + ...
 
-        x = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
-        value_t: TensorJM = self.critic_target.forward(x)
+        # handle goal-conditioning for the achiever
+        if goal_embed is not None:
+            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+
+        value_t: TensorJM = self.critic_target.forward(features)
         value0t: TensorHM = value_t[:-1]
         value1t: TensorHM = value_t[1:]
         advantage = - value0t + reward1 + self.gamma * (1.0 - terminal1) * value1t
@@ -108,14 +113,14 @@ class ActorCritic(nn.Module):
 
         # Critic loss
 
-        value: TensorJM = self.critic.forward(x.detach())
+        value: TensorJM = self.critic.forward(features.detach())
         value0: TensorHM = value[:-1]
         loss_critic = 0.5 * torch.square(value_target.detach() - value0)
         loss_critic = (loss_critic * reality_weight).mean()
 
         # Actor loss
 
-        policy_distr = self.forward_actor(features.detach()[:-1], goal_embed)  # TODO: we could reuse this from dream()
+        policy_distr = self.forward_actor(features.detach()[:-1])  # TODO: we could reuse this from dream()
         if self.actor_grad == 'reinforce':
             action_logprob = policy_distr.log_prob(actions.detach())
             loss_policy = - action_logprob * advantage_gae.detach()

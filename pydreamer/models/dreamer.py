@@ -23,8 +23,6 @@ class Dreamer(nn.Module):
         super().__init__()
         assert conf.action_dim > 0, "Need to set action_dim to match environment"
         state_dim = conf.deter_dim + conf.stoch_dim * (conf.stoch_discrete or 1)
-        self.device = torch.device(conf.device)
-        self.conf = conf
 
         # World model
 
@@ -32,7 +30,7 @@ class Dreamer(nn.Module):
 
         # Pass World Model into task_behavior and explore_behavior
 
-        self._task_behavior = GCDreamerBehavior(conf, state_dim, self.wm)
+        self._task_behavior = GCDreamerBehavior(conf, self.wm)
         self._expl_behavior = Plan2Explore(conf, self.wm)
 
         # Map probe
@@ -67,8 +65,11 @@ class Dreamer(nn.Module):
         grad_metrics = {
             'grad_norm': nn.utils.clip_grad_norm_(self.wm.parameters(), grad_clip),
             'grad_norm_probe': nn.utils.clip_grad_norm_(self.probe_model.parameters(), grad_clip),
-            'grad_norm_actor': nn.utils.clip_grad_norm_(self.ac.actor.parameters(), grad_clip_ac or grad_clip),
-            'grad_norm_critic': nn.utils.clip_grad_norm_(self.ac.critic.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_task_actor': nn.utils.clip_grad_norm_(self._task_behavior.ac.actor.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_task_critic': nn.utils.clip_grad_norm_(self._task_behavior.ac.critic.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_expl_actor': nn.utils.clip_grad_norm_(self._expl_behavior.ac.actor.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_expl_critic': nn.utils.clip_grad_norm_(self._expl_behavior.ac.critic.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_expl_ensemble': nn.utils.clip_grad_norm_(self._expl_behavior.ensemble.parameters(), grad_clip_ac or grad_clip),
         }
         return grad_metrics
 
@@ -133,17 +134,15 @@ class Dreamer(nn.Module):
         metrics.update(**metrics_probe)
         tensors.update(**tensors_probe)
 
-        # TODO: should states be copied if it's used twice? Probably not, but I need to trace it.
+        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
 
         # Task Behavior Training Step (achiever)
         
-        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
         task_loss_actor, task_loss_critic, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
 
         # Explore Behavior Training Step (explorer)
 
-        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, posts.detach())
+        ensemble_loss, expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, posts.detach())
         
         # Dream for a log sample.
 
@@ -154,29 +153,28 @@ class Dreamer(nn.Module):
                 # and here for inspection purposes we only dream from first step, so it's (H*B).
                 # Oh, and we set here H=T-1, so we get (T,B), and the dreamed experience aligns with actual.
                 in_state_dream: StateB = map_structure(states, lambda x: x.detach()[0, :, 0])  # type: ignore  # (T,B,I) => (B)
-                _, features_dream, actions_dream, rewards_dream, terminals_dream, tensors_ac = \
-                    self._expl_behavior.training_step(in_state_dream, T - 1, goal_embed)
+                features_dream, actions_dream, rewards_dream, terminals_dream = \
+                    self._expl_behavior.training_step(in_state_dream, T - 1, forward_only=True)
                 image_dream = self.wm.decoder.image.forward(features_dream)
 
                 # The tensors are intentionally named same as in tensors, so the logged npz looks the same for dreamed or not
                 dream_tensors = dict(action_pred=torch.cat([obs['action'][:1], actions_dream]),  # first action is real from previous step
                                      reward_pred=rewards_dream,
                                      terminal_pred=terminals_dream.mean,
-                                     image_pred=image_dream,
-                                     **tensors_ac)
+                                     image_pred=image_dream)
                 assert dream_tensors['action_pred'].shape == obs['action'].shape
                 assert dream_tensors['image_pred'].shape == obs['image'].shape
 
         # TODO: modify metrics, tensors so that we have copies for explorer and achiever
         # TODO: also determine how metrics are logged and what they're used for
-        return (loss_model, loss_probe, expl_loss_actor, expl_loss_critic, task_loss_actor, task_loss_critic), \
+        return (loss_model, loss_probe, task_loss_actor, task_loss_critic, expl_loss_actor, expl_loss_critic, ensemble_loss), \
             out_state, metrics, tensors, dream_tensors
     
     def __str__(self):
         # Short representation
         s = []
         s.append(f'Model: {param_count(self)} parameters')
-        for submodel in (self.wm.encoder, self.wm.decoder, self.wm.core, self.ac, self.probe_model):
+        for submodel in (self.wm.encoder, self.wm.decoder, self.wm.core, self._task_behavior, self._expl_behavior, self.probe_model):
             if submodel is not None:
                 s.append(f'  {type(submodel).__name__:<15}: {param_count(submodel)} parameters')
         return '\n'.join(s)
@@ -318,4 +316,4 @@ class WorldModel(nn.Module):
                 tensors.update(**tensors_logprob)  # logprob_image, ...
                 tensors.update(**tensors_pred)  # image_pred, ...
 
-        return loss_model.mean(), features, states, out_state, posts, metrics, tensors 
+        return loss_model.mean(), features, states, out_state, post, metrics, tensors 

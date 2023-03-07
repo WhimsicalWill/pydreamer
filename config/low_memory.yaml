@@ -9,7 +9,7 @@ low_memory:
   offline_test_dir:
   offline_eval_dir:
   log_interval: 100
-  logbatch_interval: 200 # changed from 1000 for more frequent d2_wm_dream logs
+  logbatch_interval: 100 # changed from 1000 for more frequent d2_wm_dream logs
   save_interval: 200
   eval_interval: 2000
   data_workers: 1
@@ -115,12 +115,12 @@ low_memory:
   env_no_terminal: False
 
   # Exploration
-  expl_behavior: 'plan2explore'
+  expl_behavior: plan2explore
   expl_every_ep: 2
   expl_until: -100
   expl_extr_scale: 0.0
   expl_intr_scale: 1.0
-  disag_target: 'stoch'
+  disag_target: stoch
   disag_log: True
   disag_models: 10
   disag_offset: 1
