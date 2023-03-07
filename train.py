@@ -321,9 +321,13 @@ def run(conf):
 
                         info(f"[{steps:06}]"
                              f"  loss_model: {metrics.get('train/loss_model', 0):.3f}"
-                             f"  loss_critic: {metrics.get('train/loss_critic', 0):.3f}"
-                             f"  policy_value: {metrics.get('train/policy_value',0):.3f}"
-                             f"  policy_entropy: {metrics.get('train/policy_entropy',0):.3f}"
+                             f"  loss_ensemble: {metrics.get('train/loss_ensemble', 0):.3f}"
+                             f"  expl_loss_critic: {metrics.get('train/expl_loss_critic', 0):.3f}"
+                             f"  expl_policy_value: {metrics.get('train/expl_policy_value',0):.3f}"
+                             f"  expl_policy_entropy: {metrics.get('train/expl_policy_entropy',0):.3f}"
+                             f"  task_loss_critic: {metrics.get('train/task_loss_critic', 0):.3f}"
+                             f"  task_policy_value: {metrics.get('train/task_policy_value',0):.3f}"
+                             f"  task_policy_entropy: {metrics.get('train/task_policy_entropy',0):.3f}"
                              f"  fps: {metrics['train/fps']:.3f}"
                              )
                         if steps > conf.log_interval:  # Skip the first batch, because the losses are very high and mess up y axis

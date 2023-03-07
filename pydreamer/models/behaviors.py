@@ -35,7 +35,7 @@ class ImagBehavior(nn.Module):
 
         (loss_actor, loss_critic), metrics_ac, tensors_ac = \
             self.ac.training_step(features_dream, actions_dream, rewards_dream, terminals_dream, goal_embed)
-        return loss_actor, loss_critic, features_dream, actions_dream, rewards_dream, terminals_dream, tensors_ac
+        return loss_actor, loss_critic, metrics_ac, features_dream, actions_dream, rewards_dream, terminals_dream, tensors_ac
 
     # unrolls a policy in imagination using the world model
     def dream(self, in_state: StateB, imag_horizon: int, reward_func, dynamics_gradients=False, goal_embed=None):

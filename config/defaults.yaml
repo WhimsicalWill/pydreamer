@@ -56,7 +56,7 @@ defaults:
   probe_gradients: False  # for baselines
 
   # Goal
-  goal_path: many_trees.jpg
+  goal_path: grass_and_water.jpg
   
   # Eval
   test_batches: 61  # For unbiased test needs to be enough to cover full episodes
@@ -102,9 +102,9 @@ defaults:
   actor_dist: onehot
 
   # Generator
-  generator_workers: 32
+  generator_workers: 8
   generator_workers_eval: 1
-  generator_prefill_steps: 200_000
+  generator_prefill_steps: 20_000
   generator_prefill_policy: random
   steps_per_npz: 1000
   limit_step_ratio: 0
@@ -115,18 +115,17 @@ defaults:
   env_no_terminal: False
 
   # Exploration
-  expl_behavior: 'plan2explore'
+  expl_behavior: plan2explore
   expl_every_ep: 2
   expl_until: -100
   expl_extr_scale: 0.0
   expl_intr_scale: 1.0
-  disag_target: 'stoch'
+  disag_target: stoch
   disag_log: True
   disag_models: 10
   disag_offset: 1
   disag_layers: 4
   disag_units: 400
-
 
 minigrid:
   env_id: MiniGrid-MazeS11N-v0
@@ -213,7 +212,7 @@ atari:
 crafter:
   env_id: crafter-reward
   action_dim: 17
-  generator_prefill_steps: 20000
+  generator_prefill_steps: 20_000
 
 # minecraft:
 #   env_id: minecraft-diamond

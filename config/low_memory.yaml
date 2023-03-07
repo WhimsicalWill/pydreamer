@@ -29,9 +29,6 @@ low_memory:
   action_dim: 0
   clip_rewards:
 
-  # Goal
-  goal_path: many_trees.jpg
-  
   # Training
   buffer_size: 10_000_000
   buffer_size_offline: 0
@@ -58,6 +55,9 @@ low_memory:
   separate_adams: True  # for baselines
   probe_gradients: False  # for baselines
 
+  # Goal
+  goal_path: grass_and_water.jpg
+  
   # Eval
   test_batches: 61  # For unbiased test needs to be enough to cover full episodes
   test_batch_size: 4  # Smaller for faster test

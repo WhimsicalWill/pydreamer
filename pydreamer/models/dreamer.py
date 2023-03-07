@@ -138,11 +138,20 @@ class Dreamer(nn.Module):
 
         # Task Behavior Training Step (achiever)
         
-        task_loss_actor, task_loss_critic, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
+        task_loss_actor, task_loss_critic, task_metrics_ac, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
 
         # Explore Behavior Training Step (explorer)
 
-        ensemble_loss, expl_loss_actor, expl_loss_critic, *_ = self._expl_behavior.training_step(in_state_dream, H, posts.detach())
+        ensemble_loss, expl_loss_actor, expl_loss_critic, expl_metrics_ac, *_ = \
+            self._expl_behavior.training_step(in_state_dream, H, posts.detach())
+
+        # Update metrics for achiever and explorer
+
+        task_metrics_ac = {f'task_{k}': v for k, v in task_metrics_ac.items()}
+        expl_metrics_ac = {f'expl_{k}': v for k, v in expl_metrics_ac.items()}
+        metrics.update(**task_metrics_ac)
+        metrics.update(**expl_metrics_ac)
+        metrics.update(loss_ensemble=ensemble_loss)
         
         # Dream for a log sample.
 
@@ -165,8 +174,6 @@ class Dreamer(nn.Module):
                 assert dream_tensors['action_pred'].shape == obs['action'].shape
                 assert dream_tensors['image_pred'].shape == obs['image'].shape
 
-        # TODO: modify metrics, tensors so that we have copies for explorer and achiever
-        # TODO: also determine how metrics are logged and what they're used for
         return (loss_model, loss_probe, task_loss_actor, task_loss_critic, expl_loss_actor, expl_loss_critic, ensemble_loss), \
             out_state, metrics, tensors, dream_tensors
     
