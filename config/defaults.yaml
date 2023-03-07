@@ -46,7 +46,7 @@ defaults:
   adam_eps: 1.0e-5
   keep_state: True
   batch_length: 48
-  batch_size: 256
+  batch_size: 200
   device: "cuda:0"
   grad_clip: 200
   grad_clip_ac: 200
