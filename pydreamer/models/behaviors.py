@@ -62,17 +62,22 @@ class ImagBehavior(nn.Module):
             prior, state = self.wm.core.cell.forward_prior(action, None, state)
             priors.append(prior)
 
+        # save one extra feature for last terminal prediction
         feature = self.wm.core.to_feature(*state)
         features.append(feature)
-        features = torch.stack(features)  # (H+1,TBI,D)
-        actions = torch.stack(actions)  # (H,TBI,A)
-        priors = torch.stack(priors)  # (H,TBI,2S)
 
         if goal_embed is None:
-            rewards = reward_func(priors)               # (H+1,TBI)
-        else:
-            rewards = reward_func(features, goal_embed) # (H+1,TBI)
-        terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
+            features = torch.stack(features[1:])  # (H,TBI,D)
+            actions = torch.stack(actions[1:])  # (H-1,TBI,A)
+            priors = torch.stack(priors[:-1])  # (H-1,TBI,2S)
+            rewards = reward_func(priors, features[:-1], actions)               # (H-1,TBI)
+        
+        # deprecating achiever functionality for now since a2c impl differs
+        # else:
+        #     features = torch.stack(features)  # (H+1,TBI,D)
+        #     actions = torch.stack(actions)  # (H,TBI,A)
+        #     rewards = reward_func(features, goal_embed) # (H+1,TBI)
+        terminals = self.wm.decoder.terminal.forward(features)  # (H,TBI)
 
         self.wm.requires_grad_(True)
         return features, actions, rewards, terminals
@@ -115,13 +120,14 @@ class Plan2Explore(ImagBehavior):
     def __init__(self, conf, world_model):
         super(Plan2Explore, self).__init__(conf, world_model, False)
         self.conf = conf
-        size = {
+        out_size = {
             'embed': 32 * conf.cnn_depth,
             'stoch': conf.stoch_dim * conf.stoch_discrete,
             'deter': conf.deter_dim,
             'feat': conf.stoch_dim * conf.stoch_discrete + conf.deter_dim,
         }[self.conf.disag_target]
-        kw = dict(shape=size, layers=conf.disag_layers, units=conf.disag_units)
+        in_size = conf.deter_dim + out_size + conf.action_dim
+        kw = dict(in_size=in_size, out_size=out_size, layers=conf.disag_layers, units=conf.disag_units)
         self.ensemble = nn.ModuleList([DenseHead(**kw) for _ in range(conf.disag_models)])
 
     def forward(self, features):
@@ -130,33 +136,41 @@ class Plan2Explore(ImagBehavior):
         return action_distr, value
 
     # if targets are not provided, then we assume we are just logging
-    def training_step(self, in_state_dream, H, posts=None, forward_only=False):
+    # we no longer need posts, because we are only interested in tracking actions that affect our rewards
+    def training_step(self, in_state_dream, H, posts, actions, features, forward_only=False):
         if forward_only: # for logging
-            return self.dream(in_state_dream, H, lambda x: torch.eye(1), self.conf.actor_grad == 'dynamics', None)
-        ensemble_loss = self._train_ensemble(posts)
-        reward_func = lambda x: self._intrinsic_reward(x, flatten_batch(posts)[0])
-        return ensemble_loss, *self.train(in_state_dream, H, reward_func)
+            return self.dream(in_state_dream, H, lambda *x: torch.eye(1), self.conf.actor_grad == 'dynamics', None)
+        ensemble_loss = self._train_ensemble(posts, actions, features)
+        return ensemble_loss, *self.train(in_state_dream, H, self._intrinsic_reward)
 
     # Reward computation using disagreement in the space of the prior predictions
-    def _intrinsic_reward(self, priors, posts):
+    def _intrinsic_reward(self, priors, features, actions):
         # posts (TBI,2S), priors (H,TBI,2S)
         self.ensemble.requires_grad_(False)  # Prevent dynamics gradients from affecting ensemble
-        priors = torch.cat([posts.unsqueeze(0), priors], dim=0) # (H+1,TBI,2S)
-        pred = torch.stack([head(priors).mean for head in self.ensemble], dim=0) # (K,H+1,TBI,2S)
+        # priors = torch.cat([posts.unsqueeze(0), priors], dim=0) # (H+1,TBI,2S)
+        pred = torch.stack([head(priors, features, actions).mean for head in self.ensemble], dim=0) # (K,H+1,TBI,2S)
         variance = torch.var(pred, dim=0) # (H+1,TBI,2S)
         disagreement = torch.mean(variance, dim=-1) # (H+1,TBI)
         reward = self.conf.expl_intr_scale * disagreement
         self.ensemble.requires_grad_(True)
         return reward # (H+1,TBI)
 
-    def _train_ensemble(self, posts):
+    # TODO: I didn't even think about how this would be trained in the new setting
+    # Also note: the only reason we aren't using the extra initial state is because it will complicate things
+    def _train_ensemble(self, posts, actions, features):
         # posts are shape (T,B,I,2S) where I=1
+        # we have the action preceeding every post
+        # features and actions are shape (T,B,I,D) and (T,B,I,A)
+        actions = actions[1:] # (T-1,B,I,A)
+        features = features[:-1] # (T-1,B,I,D)
         if self.conf.disag_offset:
-            targets = posts[self.conf.disag_offset:]
-            inputs = posts[:-self.conf.disag_offset]
-        inputs, _ = flatten_batch(inputs) # (T,B,I,2S) => (TBI,2S)
-        targets, _ = flatten_batch(targets) # (T,B,I,2S) => (TBI,2S)
-        preds = [head(inputs) for head in self.ensemble] # (K,TBI,2S)
-        likes = torch.stack([torch.mean(pred.log_prob(targets), dim=-1) for pred in preds]) # (K,)
+            target_posts = posts[self.conf.disag_offset:]
+            input_posts = posts[:-self.conf.disag_offset]
+        actions, _ = flatten_batch(actions) # (T,B,I,2S) => (TBI,2S)
+        features, _ = flatten_batch(features) # (T,B,I,2S) => (TBI,2S)
+        input_posts, _ = flatten_batch(input_posts) # (T,B,I,2S) => (TBI,2S)
+        target_posts, _ = flatten_batch(target_posts) # (T,B,I,2S) => (TBI,2S)
+        preds = [head(input_posts, actions, features) for head in self.ensemble] # (K,TBI,2S)
+        likes = torch.stack([torch.mean(pred.log_prob(target_posts), dim=-1) for pred in preds]) # (K,)
         loss = -torch.sum(likes)
         return loss

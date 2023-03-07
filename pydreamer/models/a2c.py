@@ -78,7 +78,7 @@ class ActorCritic(nn.Module):
                 self.update_critic_target()
             self.train_steps += 1
 
-        reward1: TensorHM = rewards[1:]
+        reward: TensorHM = rewards
         terminal0: TensorHM = terminals.mean[:-1]
         terminal1: TensorHM = terminals.mean[1:]
 
@@ -92,7 +92,7 @@ class ActorCritic(nn.Module):
         value_t: TensorJM = self.critic_target.forward(features)
         value0t: TensorHM = value_t[:-1]
         value1t: TensorHM = value_t[1:]
-        advantage = - value0t + reward1 + self.gamma * (1.0 - terminal1) * value1t
+        advantage = - value0t + reward + self.gamma * (1.0 - terminal1) * value1t
         advantage_gae = []
         agae = None
         for adv, term in zip(reversed(advantage.unbind()), reversed(terminal1.unbind())):
@@ -140,8 +140,8 @@ class ActorCritic(nn.Module):
                            policy_entropy=policy_entropy.mean(),
                            policy_value=value0[0].mean(),  # Value of real states
                            policy_value_im=value0.mean(),  # Value of imagined states
-                           policy_reward=reward1.mean(),
-                           policy_reward_std=reward1.std(),
+                           policy_reward=reward.mean(),
+                           policy_reward_std=reward.std(),
                            )
             tensors = dict(value=value.detach(),
                            value_target=value_target.detach(),
