@@ -95,9 +95,10 @@ class DenseHead(nn.Module):
     Can use learned std or fixed std.
     '''
 
-    def __init__(self, shape, layers, units, act=nn.ELU, std=1.0):
+    def __init__(self, in_size, out_size, layers, units, act=nn.ELU, std=1.0):
         super(DenseHead, self).__init__()
-        self._shape = shape
+        self._in_size = in_size
+        self._out_size = out_size
         self._layers = layers
         self._units = units
         self._act = act
@@ -105,23 +106,23 @@ class DenseHead(nn.Module):
         self.model_base = self._build_model_base()
 
         # define mean and std prediction heads
-        self.mean = nn.Linear(self._units, self._shape)
+        self.mean = nn.Linear(self._units, self._out_size)
         if self._std == 'learned':
             self.std = nn.Sequential(
-                nn.Linear(self._units, self._shape),
+                nn.Linear(self._units, self._out_size),
                 nn.Softplus()
             )
 
-    def _build_model_base(self):
-        model = [nn.Linear(self._shape, self._units)]
+    def _build_model_base(self) -> nn.Sequential:
+        model = [nn.Linear(self._in_size, self._units)]
         model += [self._act()]
         for _ in range(self._layers - 1):
             model += [nn.Linear(self._units, self._units)]
             model += [self._act()]
         return nn.Sequential(*model)
 
-    def forward(self, x):
-        x = self.model_base(x)
+    def forward(self, features: Tensor) -> td.Independent:
+        x = self.model_base(features)
         mean = self.mean(x)
         std = self.std(x) + 0.01 if self._std == 'learned' else self._std
         return td.independent.Independent(td.Normal(mean, std), 1)

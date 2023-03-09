@@ -89,7 +89,7 @@ class Preprocessor:
         self.action_dim = action_dim
         self.clip_rewards = clip_rewards
         self.amp = amp
-        self.goal_image=goal_image
+        self.goal_image = goal_image
 
     def __call__(self, dataset: IterableDataset) -> IterableDataset:
         return TransformedDataset(dataset, self.apply)
