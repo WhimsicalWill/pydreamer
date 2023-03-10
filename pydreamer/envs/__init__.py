@@ -58,8 +58,8 @@ def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_r
 
         # Set logging variables
         crafter_save_video = False
-        run_id = 5
-        logdir = './logdir/run_3_04_v1'
+        run_id = 3
+        logdir = './logdir/run_3_09_v1'
         crafter_video_dir = f'{logdir}/vids_{run_id}'
 
         env = gym.make('CrafterReward-v1') # Or CrafterNoReward-v1
