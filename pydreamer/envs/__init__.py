@@ -8,7 +8,7 @@ import numpy as np
 from .wrappers import *
 
 
-def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_repeat: int, worker_id: int):
+def create_env(conf, env_id: str, no_terminal: bool, env_time_limit: int, env_action_repeat: int, worker_id: int):
 
     if env_id.startswith('MiniGrid-'):
         from .minigrid import MiniGrid
@@ -52,38 +52,25 @@ def create_env(env_id: str, no_terminal: bool, env_time_limit: int, env_action_r
         from .dmc import DMC
         env = DMC(env_id.split('-')[1].lower(), action_repeat=env_action_repeat)
 
-    elif env_id.startswith('crafter'):
-        # I don't think we need to have crafter in envs, just init from crafter package
+    if env_id.startswith('crafter'):
         import crafter
 
-        # Set logging variables
-        crafter_save_video = False
-        run_id = 3
-        logdir = './logdir/run_3_09_v1'
+        run_id = conf.run_id
+        logdir = conf.logdir
         crafter_video_dir = f'{logdir}/vids_{run_id}'
-
-        env = gym.make('CrafterReward-v1') # Or CrafterNoReward-v1
+        env = gym.make('CrafterReward-v1') if conf.use_reward else gym.make('CrafterNoReward-v1')
         env = crafter.Recorder(
             env, crafter_video_dir,
-            save_stats=True,
-            save_episode=False,
-            save_video=crafter_save_video,
+            save_stats=conf.save_stats,
+            save_episode=conf.save_episode,
+            save_video=conf.save_video,
         )
-        env = DictWrapper(env) # other gym envs use this wrapper
-
-    # TODO: the following may not be needed because MineRL is supported above
-    # elif env_id.startswith('minecraft'):
-    #     from . import minecraft_minerl
-    #     env = minecraft_minerl.MineRLEnv().make()
-    #     env = DictWrapper(env) # other gym envs use this wrapper
-    #     print(env)
+        env = DictWrapper(env)
 
     else:
         env = gym.make(env_id)
         env = DictWrapper(env)
 
-    # if the env is a subclass of Embodied.Env, we should use the logic from dreamerv3
-    # TODO: do we need embodied for minecraft env?
     if hasattr(env.action_space, 'n'):
         env = OneHotActionWrapper(env)
     if env_time_limit > 0:

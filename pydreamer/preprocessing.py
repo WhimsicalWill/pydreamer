@@ -28,12 +28,6 @@ def to_image(x: np.ndarray) -> np.ndarray:
     x = x.transpose(0, 1, 4, 2, 3)  # (T, B, H, W, C) => (T, B, C, H, W)
     return x
 
-def process_goal_img(x: np.ndarray) -> np.ndarray:
-    assert x.dtype == np.uint8
-    x = x.astype(np.float32)
-    x = x / 255.0 - 0.5
-    return x
-
 def remove_keys(data: dict, keys: list):
     for key in keys:
         if key in data:
@@ -80,8 +74,7 @@ class Preprocessor:
                  map_categorical=None,
                  action_dim=0,
                  clip_rewards=None,
-                 amp=False,
-                 goal_image=None):
+                 amp=False):
         self.image_categorical = image_categorical
         self.image_key = image_key
         self.map_categorical = map_categorical
@@ -89,7 +82,6 @@ class Preprocessor:
         self.action_dim = action_dim
         self.clip_rewards = clip_rewards
         self.amp = amp
-        self.goal_image = goal_image
 
     def __call__(self, dataset: IterableDataset) -> IterableDataset:
         return TransformedDataset(dataset, self.apply)
@@ -118,7 +110,10 @@ class Preprocessor:
 
         # goal image
 
-        batch['goal'] = process_goal_img(self.goal_image)
+        if self.image_categorical:
+            batch['goal'] = img_to_onehot(batch['goal'], self.image_categorical)
+        else:
+            batch['goal'] = to_image(batch['goal'])
 
         # map
 

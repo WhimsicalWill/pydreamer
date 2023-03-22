@@ -95,11 +95,11 @@ def mlflow_log_text(text, name: str, subdir=None):
         mlflow.log_artifact(str(path), artifact_path=subdir)
 
 
-def mlflow_save_checkpoint(model, optimizers, steps):
+def mlflow_save_checkpoint(model, optimizers, steps, filename='latest.pt'):
     import mlflow
     import torch
     with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / 'latest.pt'
+        path = Path(tmpdir) / filename
         checkpoint = {}
         checkpoint['epoch'] = steps
         checkpoint['model_state_dict'] = model.state_dict()

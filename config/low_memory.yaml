@@ -104,7 +104,7 @@ low_memory:
   # Generator
   generator_workers: 1
   generator_workers_eval: 1
-  generator_prefill_steps: 200_000
+  generator_prefill_steps: 2_000
   generator_prefill_policy: random
   steps_per_npz: 150
   limit_step_ratio: 0
@@ -150,7 +150,7 @@ minigrid:
 
 miniworld:
   # Env
-  env_id: MiniWorld-ScavengerHuntSmall-v0
+  env_id: MiniWorld-Hallway-v0
   env_no_terminal: True
   map_size: 9
   map_channels: 14
@@ -213,6 +213,12 @@ crafter:
   env_id: crafter-reward
   action_dim: 17
   generator_prefill_steps: 200
+  save_stats: True
+  save_episode: False
+  save_video: False
+  run_id: 1
+  logdir: ./logdir/run_3_21_v1
+  use_reward: True
 
 minecraft:
   env_id: MineRLObtainDiamond-v0

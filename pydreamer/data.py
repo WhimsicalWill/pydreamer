@@ -240,6 +240,7 @@ class DataSequential(IterableDataset):
             data['reset'] = np.zeros(n, bool)
         data['reset'][0] = True  # File must start with reset
         data['reward'][0] = 0.0  # ... and no rewards
+        data['goal'] = self.get_goal_images(data['image']) # (T, H, W, C)
 
         i = 0 if not skip_random else np.random.randint(n - batch_length + 1)
         l = first_shorter_length or batch_length
@@ -255,10 +256,17 @@ class DataSequential(IterableDataset):
                 # Random resets are generated at any step, but always reset in the beginning of the batch, for longer backprop
                 assert not np.any(batch['reset']), 'randomize_resets should not coincide with actual resets'
                 batch['reset'][0] = True
+            # batch['goal'] = self.get_goal_images(data['image']) # (H, W, C)
             is_partial = lenb(batch) < l
             i += l
             l = batch_length
             yield batch, is_partial
+
+    # Shuffle the image observations and use them as goals (T, H, W, C)
+    def get_goal_image(self, images):
+        T, *_ = images.shape
+        indices = np.random.choice(T, size=T, replace=True)
+        return images[indices]
 
     def iter_shuffled_files(self):
         while True:

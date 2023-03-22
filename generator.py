@@ -24,7 +24,8 @@ from pydreamer.preprocessing import Preprocessor
 from pydreamer.tools import *
 
 
-def main(env_id='MiniGrid-MazeS11N-v0',
+def main(conf,
+         env_id='MiniGrid-MazeS11N-v0',
          save_uri=None,
          save_uri2=None,
          worker_id=0,
@@ -44,8 +45,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
          metrics_prefix='agent',
          metrics_gamma=0.99,
          log_every=10,
-         goal_image=None,
-         ):
+         goal_image=None):
 
     configure_logging(prefix=f'[GEN {worker_id}]', info_color=LogColorFormatter.GREEN)
 
@@ -78,7 +78,7 @@ def main(env_id='MiniGrid-MazeS11N-v0',
 
     # Env
 
-    env = create_env(env_id, env_no_terminal, env_time_limit, env_action_repeat, worker_id)
+    env = create_env(conf, env_id, env_no_terminal, env_time_limit, env_action_repeat, worker_id)
 
     # Policy
 

@@ -45,8 +45,9 @@ class Dreamer(nn.Module):
             raise NotImplementedError(f'Unknown probe_model={conf.probe_model}')
         self.probe_model = probe_model
     
+    # goal_image is shape (C, H, W)
     def get_goal_embedding(self, goal_image):
-        goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (T,B,E)
+        goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (E,)
         return goal_embed.detach()
 
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
