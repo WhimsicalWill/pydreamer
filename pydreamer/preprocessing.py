@@ -110,10 +110,11 @@ class Preprocessor:
 
         # goal image
 
-        if self.image_categorical:
-            batch['goal'] = img_to_onehot(batch['goal'], self.image_categorical)
-        else:
-            batch['goal'] = to_image(batch['goal'])
+        if 'goal' in batch:
+            if self.image_categorical:
+                batch['goal'] = img_to_onehot(batch['goal'], self.image_categorical)
+            else:
+                batch['goal'] = to_image(batch['goal'])
 
         # map
 

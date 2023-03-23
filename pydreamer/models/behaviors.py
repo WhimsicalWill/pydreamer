@@ -49,7 +49,7 @@ class ImagBehavior(nn.Module):
             if goal_embed is None:
                 action_dist = self.ac.forward_actor(feature)
             else:
-                action_dist = self.ac.forward_actor(feature, goal_embed)
+                action_dist = self.ac.forward_actor(feature, goal_embed[0])
             if dynamics_gradients:
                 action = action_dist.rsample()
             else:
@@ -92,16 +92,16 @@ class GCDreamerBehavior(ImagBehavior):
 
     # Reward computation using cosine similarity in feature space
     def _cosine_similarity(self, features, goal_embed):
-        # goal_embed is the embedding of the fixed goal (E,)
+        # features has shape # (H+1,TBI,D)
         device = next(self.wm.parameters()).device
         with torch.no_grad():
             batch_size = features.shape[0] * features.shape[1]
             init_state = self.wm.init_state(batch_size)                                                # ((H+1)*TBI,D+S)
             action = torch.zeros(batch_size, self.conf.action_dim).to(device)                  # ((H+1)*TBI,A)
             reset_mask = torch.zeros(batch_size, 1).to(device)                                 # ((H+1)*TBI,1)
-            batch_goal_embed = goal_embed.repeat(batch_size, 1)                                     # ((H+1)*TBI,E)
+            batch_goal_embed = goal_embed.reshape(-1, goal_embed.shape[-1]) # (H+1,TBI,D) -> ((H+1)*TBI,D)
             _, (h, z) = self.wm.core.cell.forward(batch_goal_embed, action, reset_mask, init_state)
-            goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1)*TBI,D+S)
+            goal_features = self.wm.core.to_feature(h, z).reshape(*features.shape)                  # ((H+1),TBI,D+S)
         rewards = F.cosine_similarity(goal_features, features, dim=-1)                              # (H+1,TBI)
         return rewards
 

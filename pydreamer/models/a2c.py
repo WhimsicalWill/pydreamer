@@ -45,7 +45,7 @@ class ActorCritic(nn.Module):
 
     def forward_actor(self, features: Tensor, goal_embed: Tensor = None) -> D.Distribution:
         if goal_embed is not None:
-            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+            features = torch.cat([features, goal_embed], dim=-1)
         y = self.actor.forward(features).float()  # .float() to force float32 on AMP
         
         if self.actor_dist == 'onehot':
@@ -61,7 +61,7 @@ class ActorCritic(nn.Module):
 
     def forward_value(self, features: Tensor, goal_embed: Tensor = None) -> Tensor:
         if goal_embed is not None:
-            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+            features = torch.cat([features, goal_embed], dim=-1)
         y = self.critic.forward(features)
         return y
 
@@ -87,7 +87,7 @@ class ActorCritic(nn.Module):
 
         # handle goal-conditioning for the achiever
         if goal_embed is not None:
-            features = torch.cat([features, goal_embed.repeat(*features.shape[:-1], 1)], dim=-1)
+            features = torch.cat([features, goal_embed], dim=-1)
 
         value_t: TensorJM = self.critic_target.forward(features)
         value0t: TensorHM = value_t[:-1]

@@ -113,7 +113,7 @@ low_memory:
   env_action_repeat: 1
   env_time_limit: 0
   env_no_terminal: False
-  collection_mode: 'both' # could also specify 'explorer' or 'achiever'
+  collection_mode: 'explorer' # possible values: ('explorer', 'achiever', 'both')
 
   # Exploration
   expl_behavior: plan2explore

@@ -44,7 +44,9 @@ def main(conf,
          split_fraction=0.0,
          metrics_prefix='agent',
          metrics_gamma=0.99,
-         log_every=10):
+         log_every=10,
+         input_dirs=None,
+         ):
 
     configure_logging(prefix=f'[GEN {worker_id}]', info_color=LogColorFormatter.GREEN)
 
@@ -88,7 +90,7 @@ def main(conf,
         is_prefill_policy = True
     else:
         info(f'Policy: {policy_main}')
-        policy = create_policy(policy_main, env, model_conf, conf.collection_mode)
+        policy = create_policy(policy_main, env, model_conf, conf.collection_mode, input_dirs)
         is_prefill_policy = False
 
     # RUN
@@ -106,7 +108,7 @@ def main(conf,
 
         if is_prefill_policy and steps_saved >= num_steps_prefill:
             info(f'Switching to main policy: {policy_main}')
-            policy = create_policy(policy_main, env, model_conf, conf.collection_mode)
+            policy = create_policy(policy_main, env, model_conf, conf.collection_mode, input_dirs)
             is_prefill_policy = False
 
         # Load network
@@ -144,6 +146,11 @@ def main(conf,
             epsteps += 1
             for k, v in mets.items():
                 metrics[k].append(v)
+
+        # switch the policy_mode for lexa
+        
+        if isinstance(policy, NetworkPolicy):
+            policy.reset()
 
         episodes += 1
         data = inf['episode']  # type: ignore
@@ -268,8 +275,7 @@ def main(conf,
     info('Generator done.')
 
 
-def create_policy(policy_type: str, env, model_conf, policy_mode: str = None):
-    # TODO: add goal-conditioned network option here?
+def create_policy(policy_type: str, env, model_conf, collection_mode=None, input_dirs=None):
     if policy_type == 'network':
         conf = model_conf
         if conf.model == 'dreamer':
@@ -282,7 +288,7 @@ def create_policy(policy_type: str, env, model_conf, policy_mode: str = None):
                                   map_key=conf.map_key,
                                   action_dim=env.action_size,  # type: ignore
                                   clip_rewards=conf.clip_rewards)
-        return NetworkPolicy(policy_mode, model, preprocess)
+        return NetworkPolicy(model, preprocess, collection_mode, input_dirs)
 
     if policy_type == 'random':
         return RandomPolicy(env.action_space)
@@ -319,25 +325,29 @@ class RandomPolicy:
 
 
 class NetworkPolicy:
-    def __init__(self, collection_mode, model: Dreamer, preprocess: Preprocessor):
+    def __init__(self, model: Dreamer, preprocess: Preprocessor, collection_mode, input_dirs):
         self.model = model
         self.preprocess = preprocess
         self.state = model.init_state(1)
         self.collection_mode = collection_mode
-        self.policy_mode = 'achiever' if collection_mode == 'achiever' else 'explorer'
-        if self.policy_mode in ('achiever', 'both'):
-            self.init_goal_loader()
+        self.input_dirs = input_dirs
 
-    def init_goal_loader(self):
-        # TODO: properly initialize input_dirs
-        data = DataSequential(MlflowEpisodeRepository(input_dirs), 1, 1)
+        if collection_mode == 'explorer':
+            self.policy_mode = 'explorer'
+        else:
+            self.policy_mode = 'achiever'
+            self.init_goal_loader()
+            self.load_goal()
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
+        if self.policy_mode == 'achiever':
+            obs['goal'] = self.goal_image
+
         batch = self.preprocess.apply(obs, expandTB=True)
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 
         with torch.no_grad():
-            action_distr, new_state, metrics = self.model.forward(obs_model, self.state, 'explorer')
+            action_distr, new_state, metrics = self.model.forward(obs_model, self.state, self.policy_mode)
             action = action_distr.sample()
             self.state = new_state
 
@@ -348,15 +358,21 @@ class NetworkPolicy:
         action = action.squeeze()  # (1,1,A) => A
         return action.numpy(), metrics
 
+    def init_goal_loader(self):
+        self.data = DataSequential(MlflowEpisodeRepository(self.input_dirs), 1, 1)
+
+    def load_goal(self):
+        self.goal_image = self.data.get_goal_images(1)[0]
+
     # called at the end of episode
-    def reset_policy(self):
+    def reset(self):
         # switch the policy_mode if in 'both' collection_mode
         if self.collection_mode == 'both':
             self.policy_mode = 'explorer' if self.policy_mode == 'achiever' else 'achiever'
 
         # TODO: resample goal image if the policy_mode is 'achiever'
         if self.policy_mode == 'achiever':
-            self.goal_image = self.data.get_goal_images()
+            self.goal_image = self.data.get_goal_images(1)
 
 
 if __name__ == '__main__':

@@ -69,6 +69,7 @@ def run(conf):
         for i in range(conf.generator_workers):
             # If eval environment is the same, we can use one agent for both train and eval data
             share_eval_generator = not conf.env_id_eval
+            input_dirs.append(f'{artifact_uri}/episodes/{i}')
             if share_eval_generator:
                 # One train+eval generator
                 p = run_generator(conf.env_id,
@@ -83,8 +84,8 @@ def run(conf):
                                   policy_prefill=conf.generator_prefill_policy,
                                   num_steps_prefill=conf.generator_prefill_steps // conf.generator_workers,
                                   split_fraction=0.1,
+                                  input_dirs=input_dirs,
                                   )
-                input_dirs.append(f'{artifact_uri}/episodes/{i}')
                 eval_dirs.append(f'{artifact_uri}/episodes_eval/{i}')
             else:
                 # Separate train generator
@@ -97,8 +98,8 @@ def run(conf):
                                   policy_main='network',
                                   policy_prefill=conf.generator_prefill_policy,
                                   num_steps_prefill=conf.generator_prefill_steps // conf.generator_workers,
+                                  input_dirs=input_dirs,
                                   )
-                input_dirs.append(f'{artifact_uri}/episodes/{i}')
             subprocesses.append(p)
 
     # Eval data generator
@@ -116,6 +117,7 @@ def run(conf):
                                   worker_id=conf.generator_workers + i,
                                   policy_main='network',
                                   metrics_prefix='agent_eval',
+                                  input_dirs=input_dirs,
                                   )
                 eval_dirs.append(f'{artifact_uri}/episodes_eval/{i}')
                 subprocesses.append(p)
@@ -320,9 +322,9 @@ def run(conf):
                              f"  expl_policy_entropy: {metrics.get('train/expl_policy_entropy',0):.3f}"
                              f"  expl_policy_value_im: {metrics.get('train/expl_policy_value_im', 0):.3f}"
                              f"  expl_policy_reward: {metrics.get('train/expl_policy_reward',0):.3f}"
-                            #  f"  task_loss_critic: {metrics.get('train/task_loss_critic', 0):.3f}"
-                            #  f"  task_policy_value: {metrics.get('train/task_policy_value',0):.3f}"
-                            #  f"  task_policy_entropy: {metrics.get('train/task_policy_entropy',0):.3f}"
+                             f"  task_loss_critic: {metrics.get('train/task_loss_critic', 0):.3f}"
+                             f"  task_policy_value: {metrics.get('train/task_policy_value',0):.3f}"
+                             f"  task_policy_entropy: {metrics.get('train/task_policy_entropy',0):.3f}"
                              f"  fps: {metrics['train/fps']:.3f}"
                              )
                         if steps > conf.log_interval:  # Skip the first batch, because the losses are very high and mess up y axis
@@ -523,7 +525,7 @@ def prepare_batch_npz(data: Dict[str, Tensor], take_b=999):
                 f'Unexpected 2D tensor: {key}: {x.shape}, {x.dtype}'
 
         elif len(x.shape) == 5:  # 3D tensor - image
-            assert x.dtype == np.float32 and (key.startswith('image') or key.startswith('map')), \
+            assert x.dtype == np.float32 and (key.startswith('image') or key.startswith('map') or key.startswith('goal')), \
                 f'Unexpected 3D tensor: {key}: {x.shape}, {x.dtype}'
 
             if x.shape[-1] == x.shape[-2]:  # (T,B,C,W,W)
@@ -563,6 +565,7 @@ def run_generator(env_id,
                   split_fraction=0.0,
                   metrics_prefix='agent',
                   log_mlflow_metrics=True,
+                  input_dirs=None,
                   ):
     # Make sure generator subprcess logs to the same mlflow run
     os.environ['MLFLOW_RUN_ID'] = mlflow.active_run().info.run_id  # type: ignore
@@ -588,6 +591,7 @@ def run_generator(env_id,
                     split_fraction=split_fraction,
                     metrics_prefix=metrics_prefix,
                     metrics_gamma=conf.gamma,
+                    input_dirs=input_dirs,
                 ))
     p.start()
     if block:

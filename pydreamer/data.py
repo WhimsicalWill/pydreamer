@@ -255,7 +255,7 @@ class DataSequential(IterableDataset):
                 # Random resets are generated at any step, but always reset in the beginning of the batch, for longer backprop
                 assert not np.any(batch['reset']), 'randomize_resets should not coincide with actual resets'
                 batch['reset'][0] = True
-            batch['goal'] = self.get_goal_images(l) # (l, H, W, C)
+            batch['goal'] = self.get_goal_images(lenb(batch)) # (D, H, W, C)
             is_partial = lenb(batch) < l
             i += l
             l = batch_length
@@ -263,9 +263,17 @@ class DataSequential(IterableDataset):
 
     # Select D random image observations from a random episode to use as goals
     def get_goal_images(self, D):
-        # Choose a random file to load images from
+        # Choose a random file and try to load images from it
         file = np.random.choice(self.files)
-        data = file.load_data()
+        try:
+            with Timer(f'Reading {file}', verbose=False):
+                data = file.load_data()
+        except Exception as e:
+            print('Error reading file - skipping')
+            print(e)
+
+        if 'image' not in data and 'image_t' in data:
+            data['image'] = data['image_t'].transpose(3, 0, 1, 2)  # HWCT => THWC
         
         # Randomly select T image observations
         indices = np.random.choice(len(data['image']), size=D, replace=True)

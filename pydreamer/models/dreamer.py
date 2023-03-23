@@ -47,28 +47,27 @@ class Dreamer(nn.Module):
     
     # goal_image is shape (C, H, W)
     def get_goal_embedding(self, goal_image):
-        goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (E,)
+        goal_embed = self.wm.encoder.encoder_image.forward(goal_image) # (T, B, E,)
         return goal_embed.detach()
 
     def init_optimizers(self, lr, lr_actor=None, lr_critic=None, eps=1e-5):
         optimizer_wm = torch.optim.AdamW(self.wm.parameters(), lr=lr, eps=eps)
         optimizer_probe = torch.optim.AdamW(self.probe_model.parameters(), lr=lr, eps=eps)
-        # optimizer_task_actor = torch.optim.AdamW(self._task_behavior.ac.actor.parameters(), lr=lr_actor, eps=eps)
-        # optimizer_task_critic = torch.optim.AdamW(self._task_behavior.ac.critic.parameters(), lr=lr_critic, eps=eps)
+        optimizer_task_actor = torch.optim.AdamW(self._task_behavior.ac.actor.parameters(), lr=lr_actor, eps=eps)
+        optimizer_task_critic = torch.optim.AdamW(self._task_behavior.ac.critic.parameters(), lr=lr_critic, eps=eps)
         optimizer_expl_actor = torch.optim.AdamW(self._expl_behavior.ac.actor.parameters(), lr=lr_actor, eps=eps)
         optimizer_expl_critic = torch.optim.AdamW(self._expl_behavior.ac.critic.parameters(), lr=lr_critic, eps=eps)
         optimizer_expl_ensemble = torch.optim.AdamW(self._expl_behavior.ensemble.parameters(), lr=lr, eps=eps)
 
-        return optimizer_wm, optimizer_probe, optimizer_expl_actor, optimizer_expl_critic, optimizer_expl_ensemble
-        # return optimizer_wm, optimizer_probe, optimizer_task_actor, optimizer_task_critic, \
-        #     optimizer_expl_actor, optimizer_expl_critic, optimizer_expl_ensemble
+        return optimizer_wm, optimizer_probe, optimizer_task_actor, optimizer_task_critic, \
+            optimizer_expl_actor, optimizer_expl_critic, optimizer_expl_ensemble
 
     def grad_clip(self, grad_clip, grad_clip_ac=None):
         grad_metrics = {
             'grad_norm': nn.utils.clip_grad_norm_(self.wm.parameters(), grad_clip),
             'grad_norm_probe': nn.utils.clip_grad_norm_(self.probe_model.parameters(), grad_clip),
-            # 'grad_norm_task_actor': nn.utils.clip_grad_norm_(self._task_behavior.ac.actor.parameters(), grad_clip_ac or grad_clip),
-            # 'grad_norm_task_critic': nn.utils.clip_grad_norm_(self._task_behavior.ac.critic.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_task_actor': nn.utils.clip_grad_norm_(self._task_behavior.ac.actor.parameters(), grad_clip_ac or grad_clip),
+            'grad_norm_task_critic': nn.utils.clip_grad_norm_(self._task_behavior.ac.critic.parameters(), grad_clip_ac or grad_clip),
             'grad_norm_expl_actor': nn.utils.clip_grad_norm_(self._expl_behavior.ac.actor.parameters(), grad_clip_ac or grad_clip),
             'grad_norm_expl_critic': nn.utils.clip_grad_norm_(self._expl_behavior.ac.critic.parameters(), grad_clip_ac or grad_clip),
             'grad_norm_expl_ensemble': nn.utils.clip_grad_norm_(self._expl_behavior.ensemble.parameters(), grad_clip_ac or grad_clip),
@@ -128,7 +127,6 @@ class Dreamer(nn.Module):
                                   iwae_samples=iwae_samples,
                                   do_open_loop=do_open_loop,
                                   do_image_pred=do_image_pred)
-        goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
 
         # Map probe
 
@@ -138,8 +136,11 @@ class Dreamer(nn.Module):
 
         # Task Behavior Training Step (achiever)
         
-        # in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        # task_loss_actor, task_loss_critic, task_metrics_ac, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
+        goal_embed = self.get_goal_embedding(obs['goal'])  # (E,)
+        goal_embed = flatten_batch(goal_embed)[0]  # (T,B,I,E) => (TBI,E)
+        goal_embed = goal_embed.unsqueeze(0).expand(H+1, *goal_embed.shape)  # (H+1,TBI,E)
+        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+        task_loss_actor, task_loss_critic, task_metrics_ac, *_ = self._task_behavior.training_step(in_state_dream, H, goal_embed)
 
         # Explore Behavior Training Step (explorer)
 
@@ -150,9 +151,9 @@ class Dreamer(nn.Module):
 
         # Update metrics for achiever and explorer
 
-        # task_metrics_ac = {f'task_{k}': v for k, v in task_metrics_ac.items()}
+        task_metrics_ac = {f'task_{k}': v for k, v in task_metrics_ac.items()}
         expl_metrics_ac = {f'expl_{k}': v for k, v in expl_metrics_ac.items()}
-        # metrics.update(**task_metrics_ac)
+        metrics.update(**task_metrics_ac)
         metrics.update(**expl_metrics_ac)
         metrics.update(loss_ensemble=ensemble_loss)
         
@@ -177,8 +178,9 @@ class Dreamer(nn.Module):
                 assert dream_tensors['action_pred'].shape == obs['action'].shape
                 assert dream_tensors['image_pred'].shape == obs['image'].shape
 
-        return (loss_model, loss_probe, expl_loss_actor, expl_loss_critic, ensemble_loss), \
-            out_state, metrics, tensors, dream_tensors
+        return (loss_model, loss_probe, expl_loss_actor, expl_loss_critic, ensemble_loss,
+                task_loss_actor, task_loss_critic), \
+                out_state, metrics, tensors, dream_tensors
     
     def __str__(self):
         # Short representation
