@@ -133,7 +133,10 @@ class Plan2Explore(ImagBehavior):
             return self.dream(in_state_dream, H, lambda x: torch.eye(1), self.conf.actor_grad == 'dynamics', None)
         ensemble_loss = self._train_ensemble(features, state_targets)
         reward_func = lambda x: self._intrinsic_reward(x)
-        return ensemble_loss, *self.train(in_state_dream, H, reward_func)
+        # return ensemble_loss, *self.train(in_state_dream, H, reward_func)
+        result = self.train(in_state_dream, H, reward_func, None)
+        ret = ensemble_loss, *result
+        return ret
 
     # Reward computation using disagreement in the space of the stochastic samples
     def _intrinsic_reward(self, features):

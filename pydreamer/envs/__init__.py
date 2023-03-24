@@ -4,6 +4,7 @@ warnings.filterwarnings("ignore", ".*Box bound precision lowered by casting")  #
 
 import gym
 import numpy as np
+import lexa_envs
 
 from .wrappers import *
 
@@ -52,7 +53,7 @@ def create_env(conf, env_id: str, no_terminal: bool, env_time_limit: int, env_ac
         from .dmc import DMC
         env = DMC(env_id.split('-')[1].lower(), action_repeat=env_action_repeat)
 
-    if env_id.startswith('crafter'):
+    elif env_id.startswith('crafter'):
         import crafter
 
         run_id = conf.run_id
@@ -67,12 +68,18 @@ def create_env(conf, env_id: str, no_terminal: bool, env_time_limit: int, env_ac
         )
         env = DictWrapper(env)
 
+    elif env_id.startswith('robobin'):
+        use_goal_idx, log_per_goal = False, False
+        env = lexa_envs.RoboBinEnv(env_action_repeat, use_goal_idx, log_per_goal)
+        env = DictWrapper(env)
+
     else:
         env = gym.make(env_id)
         env = DictWrapper(env)
 
     if hasattr(env.action_space, 'n'):
         env = OneHotActionWrapper(env)
+    print(f"env_time_limit: {env_time_limit}")
     if env_time_limit > 0:
         env = TimeLimitWrapper(env, env_time_limit)
     env = ActionRewardResetWrapper(env, no_terminal)

@@ -221,6 +221,11 @@ crafter:
   logdir: ./logdir/run_3_21_v1
   use_reward: True
 
+robobin:
+  env_id: robobin
+  action_dim: 4
+  env_time_limit: 150
+
 minecraft:
   env_id: MineRLObtainDiamond-v0
   action_dim: 12
