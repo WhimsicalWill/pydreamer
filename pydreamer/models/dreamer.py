@@ -98,9 +98,9 @@ class Dreamer(nn.Module):
             action_distr, value = self._task_behavior(features, goal_embed)
         else:
             action_distr, value = self._expl_behavior(features)
-        disag = self._expl_behavior._intrinsic_reward(features)  # (1,B)
+        disag = self._expl_behavior._intrinsic_reward(features)  # (1,D+S)
         metrics = dict(policy_value=value.detach().mean(),
-                       disagreement=disag.detach().item())
+                       disagreement=disag.detach())
         return action_distr, out_state, metrics # (1,B,A), (1,B,F), dict
 
     def training_step(self,

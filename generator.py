@@ -151,23 +151,27 @@ def main(conf,
         while not done:
             action, mets = policy(obs)
             obs, _, done, inf = env.step(action)
-            if render_episode: 
-                frames.append(env.render_offscreen())
+            # if render_episode: 
+            #     frames.append(env.render_offscreen())
             steps += 1
             epsteps += 1
             for k, v in mets.items():
                 metrics[k].append(v)
 
-        if render_episode:
-            output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
-            if not os.path.exists(os.path.dirname(output_path)):
-                os.makedirs(os.path.dirname(output_path))
-            imageio.mimsave(output_path, frames, format='mp4')
+        # if render_episode:
+        #     output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
+        #     if not os.path.exists(os.path.dirname(output_path)):
+        #         os.makedirs(os.path.dirname(output_path))
+        #     imageio.mimsave(output_path, frames, format='mp4')
 
         # switch the policy_mode for lexa
-        
+            
         if isinstance(policy, NetworkPolicy):
-            info(f"intr_reward: {policy.intr_ep_reward:.1f}")
+            avg_action_probs = torch.mean(policy.ep_action_probs, dim=0)[0][0][0]
+            info(f"mode: {policy.policy_mode}, intr_reward: {policy.intr_ep_reward:.1f}")
+            actions_list = ['noop', 'move_left', 'move_right', 'move_up', 'move_down', 'do', 'sleep', 'place_stone', 'place_table', 'place_furnace', 'place_plant', 'make_wood_pickaxe', 'make_stone_pickaxe', 'make_iron_pickaxe', 'make_wood_sword', 'make_stone_sword', 'make_iron_sword']
+            for i in range(len(actions_list)):
+                info(f"{actions_list[i]}: {avg_action_probs[i]:.6f}")
             policy.reset()
 
         episodes += 1
@@ -350,6 +354,7 @@ class NetworkPolicy:
         self.collection_mode = collection_mode
         self.input_dirs = input_dirs
         self.intr_ep_reward = 0
+        self.ep_action_probs = None
 
         if collection_mode == 'explorer':
             self.policy_mode = 'explorer'
@@ -367,13 +372,17 @@ class NetworkPolicy:
 
         with torch.no_grad():
             action_distr, new_state, metrics = self.model.forward(obs_model, self.state, self.policy_mode)
+            if self.ep_action_probs is None:
+                self.ep_action_probs = action_distr.logits.exp().unsqueeze(0)
+            else:
+                self.ep_action_probs = torch.cat([self.ep_action_probs, action_distr.logits.exp().unsqueeze(0)], dim=0)
             action = action_distr.sample()
             self.state = new_state
 
-        self.intr_ep_reward += metrics['disagreement']
         metrics = {k: v.item() for k, v in metrics.items()}
         metrics.update(action_prob=action_distr.log_prob(action).exp().mean().item(),
                        policy_entropy=action_distr.entropy().mean().item())
+        self.intr_ep_reward += metrics['disagreement']
 
         action = action.squeeze()  # (1,1,A) => A
         return action.numpy(), metrics
@@ -387,6 +396,7 @@ class NetworkPolicy:
     # called at the end of episode
     def reset(self):
         self.intr_ep_reward = 0
+        self.ep_action_probs = None
 
         # switch the policy_mode if in 'both' collection_mode
         if self.collection_mode == 'both':
