@@ -10,6 +10,8 @@ from itertools import chain
 from logging import critical, debug, error, info, warning
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import imageio
+from PIL import Image
 
 import mlflow
 import numpy as np
@@ -131,6 +133,13 @@ def main(conf,
                 time.sleep(1)
                 continue
 
+        render_episode = False
+
+        # set rendering to true if appropriate (renders 20 eps every 2000 steps?)
+        if (episodes // 10) % 50 == 0:
+            render_episode = True
+            frames = []
+
         # Unroll one episode
 
         epsteps = 0
@@ -142,14 +151,23 @@ def main(conf,
         while not done:
             action, mets = policy(obs)
             obs, _, done, inf = env.step(action)
+            if render_episode: 
+                frames.append(env.render_offscreen())
             steps += 1
             epsteps += 1
             for k, v in mets.items():
                 metrics[k].append(v)
 
+        if render_episode:
+            output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
+            if not os.path.exists(os.path.dirname(output_path)):
+                os.makedirs(os.path.dirname(output_path))
+            imageio.mimsave(output_path, frames, format='mp4')
+
         # switch the policy_mode for lexa
         
         if isinstance(policy, NetworkPolicy):
+            info(f"intr_reward: {policy.intr_ep_reward:.1f}")
             policy.reset()
 
         episodes += 1
@@ -331,6 +349,7 @@ class NetworkPolicy:
         self.state = model.init_state(1)
         self.collection_mode = collection_mode
         self.input_dirs = input_dirs
+        self.intr_ep_reward = 0
 
         if collection_mode == 'explorer':
             self.policy_mode = 'explorer'
@@ -351,6 +370,7 @@ class NetworkPolicy:
             action = action_distr.sample()
             self.state = new_state
 
+        self.intr_ep_reward += metrics['disagreement']
         metrics = {k: v.item() for k, v in metrics.items()}
         metrics.update(action_prob=action_distr.log_prob(action).exp().mean().item(),
                        policy_entropy=action_distr.entropy().mean().item())
@@ -362,17 +382,18 @@ class NetworkPolicy:
         self.data = DataSequential(MlflowEpisodeRepository(self.input_dirs), 1, 1)
 
     def load_goal(self):
-        self.goal_image = self.data.get_goal_images(1)[0]
+        self.goal_image = self.data.get_goal_images(1).squeeze(0)
 
     # called at the end of episode
     def reset(self):
+        self.intr_ep_reward = 0
+
         # switch the policy_mode if in 'both' collection_mode
         if self.collection_mode == 'both':
             self.policy_mode = 'explorer' if self.policy_mode == 'achiever' else 'achiever'
 
-        # TODO: resample goal image if the policy_mode is 'achiever'
         if self.policy_mode == 'achiever':
-            self.goal_image = self.data.get_goal_images(1)
+            self.load_goal()
 
 
 if __name__ == '__main__':

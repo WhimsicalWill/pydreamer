@@ -152,9 +152,8 @@ class Plan2Explore(ImagBehavior):
     # Train the ensemble to predict the stochastic part of the states from the features
     def _train_ensemble(self, features, state_targets):
         _, z = state_targets
-        if self.conf.disag_offset:
-            inputs = features[:-self.conf.disag_offset]
-            targets = z[self.conf.disag_offset:]
+        inputs = features[:-self.conf.disag_offset]
+        targets = z[self.conf.disag_offset:]
         inputs, _ = flatten_batch(inputs) # (T,B,I,D+S) => (TBI,D+S)
         targets, _ = flatten_batch(targets) # (T,B,I,S) => (TBI,S)
         preds = [head(inputs) for head in self.ensemble]
