@@ -133,17 +133,17 @@ def main(conf,
                 time.sleep(1)
                 continue
 
-        render_episode = False
 
-        # set rendering to true if appropriate (renders 20 eps every 2000 steps?)
-        if (episodes // 10) % 50 == 0:
-            render_episode = True
+        # set rendering (eval) to true if appropriate (renders 4 eps every 16 steps?)
+        if isinstance(policy, NetworkPolicy) and policy.should_eval(episodes):
+            policy.set_eval(episodes)
             frames = []
 
         # Unroll one episode
 
         epsteps = 0
         timer = time.time()
+        env.set_goal_idx(episodes % 8)
         obs = env.reset()
         done = False
         metrics = defaultdict(list)
@@ -151,27 +151,32 @@ def main(conf,
         while not done:
             action, mets = policy(obs)
             obs, _, done, inf = env.step(action)
-            # if render_episode: 
-            #     frames.append(env.render_offscreen())
+            if isinstance(policy, NetworkPolicy) and policy.eval:
+                frames.append(obs['image'])
             steps += 1
             epsteps += 1
             for k, v in mets.items():
                 metrics[k].append(v)
 
-        # if render_episode:
-        #     output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
-        #     if not os.path.exists(os.path.dirname(output_path)):
-        #         os.makedirs(os.path.dirname(output_path))
-        #     imageio.mimsave(output_path, frames, format='mp4')
+        if isinstance(policy, NetworkPolicy) and policy.eval:
+            output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
+            if not os.path.exists(os.path.dirname(output_path)):
+                os.makedirs(os.path.dirname(output_path))
+            imageio.mimsave(output_path, frames, format='mp4')
+
+            # Log reward for each step of the episode to a file
+            with open(f"{conf.logdir}/list_{episodes}.txt", "w") as f:
+                for i, rew in enumerate(policy.intr_ep_reward):
+                    f.write(f"{i+1} \t {rew} \n")
 
         # switch the policy_mode for lexa
             
         if isinstance(policy, NetworkPolicy):
-            avg_action_probs = torch.mean(policy.ep_action_probs, dim=0)[0][0][0]
-            info(f"mode: {policy.policy_mode}, intr_reward: {policy.intr_ep_reward:.1f}")
-            actions_list = ['noop', 'move_left', 'move_right', 'move_up', 'move_down', 'do', 'sleep', 'place_stone', 'place_table', 'place_furnace', 'place_plant', 'make_wood_pickaxe', 'make_stone_pickaxe', 'make_iron_pickaxe', 'make_wood_sword', 'make_stone_sword', 'make_iron_sword']
+            avg_action = torch.mean(policy.ep_actions, dim=0)[0][0][0]
+            info(f"mode: {policy.policy_mode}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
+            actions_list = ['dX', 'dY', 'dZ', 'dGripper']
             for i in range(len(actions_list)):
-                info(f"{actions_list[i]}: {avg_action_probs[i]:.6f}")
+                info(f"{actions_list[i]}: {avg_action[i]:.6f}")
             policy.reset()
 
         episodes += 1
@@ -353,8 +358,9 @@ class NetworkPolicy:
         self.state = model.init_state(1)
         self.collection_mode = collection_mode
         self.input_dirs = input_dirs
-        self.intr_ep_reward = 0
-        self.ep_action_probs = None
+        self.intr_ep_reward = []
+        self.ep_actions = None
+        self.eval = False
 
         if collection_mode == 'explorer':
             self.policy_mode = 'explorer'
@@ -364,25 +370,27 @@ class NetworkPolicy:
             self.load_goal()
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
-        if self.policy_mode == 'achiever':
-            obs['goal'] = self.goal_image
+        # if self.policy_mode == 'achiever':
+        #     obs['image_goal'] = self.goal_image
+        print(f"Debug obs: {obs['image'].shape}, {obs['image_goal'].shape}")
 
+        # print(f"[Policy Action] shape: {obs['action'].shape} action: {obs['action']}")
         batch = self.preprocess.apply(obs, expandTB=True)
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 
         with torch.no_grad():
             action_distr, new_state, metrics = self.model.forward(obs_model, self.state, self.policy_mode)
-            if self.ep_action_probs is None:
-                self.ep_action_probs = action_distr.logits.exp().unsqueeze(0)
-            else:
-                self.ep_action_probs = torch.cat([self.ep_action_probs, action_distr.logits.exp().unsqueeze(0)], dim=0)
             action = action_distr.sample()
+            if self.ep_actions is None:
+                self.ep_actions = action.unsqueeze(0)
+            else:
+                self.ep_actions = torch.cat([self.ep_actions, action.unsqueeze(0)], dim=0)
             self.state = new_state
 
         metrics = {k: v.item() for k, v in metrics.items()}
         metrics.update(action_prob=action_distr.log_prob(action).exp().mean().item(),
                        policy_entropy=action_distr.entropy().mean().item())
-        self.intr_ep_reward += metrics['disagreement']
+        self.intr_ep_reward.append(metrics['disagreement'])
 
         action = action.squeeze()  # (1,1,A) => A
         return action.numpy(), metrics
@@ -391,19 +399,29 @@ class NetworkPolicy:
         self.data = DataSequential(MlflowEpisodeRepository(self.input_dirs), 1, 1)
 
     def load_goal(self):
-        self.goal_image = self.data.get_goal_images(1).squeeze(0)
+        pass
+        # self.goal_image = self.data.get_goal_images(1).squeeze(0)
+
+    def should_eval(self, episodes):
+        return (episodes // 4) % 25 == 0
+
+    def set_eval(self, episodes):
+        self.eval = True
+        # TODO: set the goal according to the episodes
+        # self.goal_idx = episodes % 4
 
     # called at the end of episode
     def reset(self):
-        self.intr_ep_reward = 0
-        self.ep_action_probs = None
+        self.intr_ep_reward = []
+        self.ep_actions = None
+        self.eval = False
 
         # switch the policy_mode if in 'both' collection_mode
         if self.collection_mode == 'both':
             self.policy_mode = 'explorer' if self.policy_mode == 'achiever' else 'achiever'
 
-        if self.policy_mode == 'achiever':
-            self.load_goal()
+        # if self.policy_mode == 'achiever':
+        #     self.load_goal()
 
 
 if __name__ == '__main__':

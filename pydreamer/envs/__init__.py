@@ -4,7 +4,7 @@ warnings.filterwarnings("ignore", ".*Box bound precision lowered by casting")  #
 
 import gym
 import numpy as np
-# import lexa_envs
+import lexa_envs
 
 from .wrappers import *
 
@@ -68,10 +68,10 @@ def create_env(conf, env_id: str, no_terminal: bool, env_time_limit: int, env_ac
         )
         env = DictWrapper(env)
 
-    # elif env_id.startswith('robobin'):
-    #     use_goal_idx, log_per_goal = False, False
-    #     env = lexa_envs.RoboBinEnv(env_action_repeat, use_goal_idx, log_per_goal)
-    #     env = DictWrapper(env)
+    elif env_id.startswith('robobin'):
+        use_goal_idx, log_per_goal = True, False
+        env = lexa_envs.RoboBinEnv(env_action_repeat, use_goal_idx, log_per_goal)
+        env = DictWrapper(env)
 
     else:
         env = gym.make(env_id)

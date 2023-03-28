@@ -525,7 +525,7 @@ def prepare_batch_npz(data: Dict[str, Tensor], take_b=999):
                 f'Unexpected 2D tensor: {key}: {x.shape}, {x.dtype}'
 
         elif len(x.shape) == 5:  # 3D tensor - image
-            assert x.dtype == np.float32 and (key.startswith('image') or key.startswith('map') or key.startswith('goal')), \
+            assert x.dtype == np.float32 and (key.startswith('image') or key.startswith('map')), \
                 f'Unexpected 3D tensor: {key}: {x.shape}, {x.dtype}'
 
             if x.shape[-1] == x.shape[-2]:  # (T,B,C,W,W)

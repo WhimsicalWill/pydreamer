@@ -94,7 +94,7 @@ class Dreamer(nn.Module):
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
         if behavior == 'achiever':
-            goal_embed = self.get_goal_embedding(obs['goal']).unsqueeze(0)  # (1,1,1,E,)
+            goal_embed = self.get_goal_embedding(obs['image_goal']).unsqueeze(0)  # (1,1,1,E,)
             action_distr, value = self._task_behavior(features, goal_embed)
         else:
             action_distr, value = self._expl_behavior(features)
@@ -138,7 +138,7 @@ class Dreamer(nn.Module):
 
         # Task Behavior Training Step (achiever)
         
-        goal_embed = self.get_goal_embedding(obs['goal'])  # (T,B,I,E)
+        goal_embed = self.get_goal_embedding(obs['image_goal'])  # (T,B,I,E)
         goal_embed = flatten_batch(goal_embed)[0]  # (T,B,I,E) => (TBI,E)
         goal_embed = goal_embed.unsqueeze(0).expand(H+1, *goal_embed.shape)  # (H+1,TBI,E)
         in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)

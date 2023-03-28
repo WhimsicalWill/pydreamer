@@ -110,11 +110,11 @@ class Preprocessor:
 
         # goal image
 
-        if 'goal' in batch:
+        if 'image_goal' in batch:
             if self.image_categorical:
-                batch['goal'] = img_to_onehot(batch['goal'], self.image_categorical)
+                batch['image_goal'] = img_to_onehot(batch['image_goal'], self.image_categorical)
             else:
-                batch['goal'] = to_image(batch['goal'])
+                batch['image_goal'] = to_image(batch['image_goal'])
 
         # map
 
@@ -183,7 +183,7 @@ class Preprocessor:
         # => float16
 
         if self.amp:
-            for key in ['image', 'action', 'action_next', 'map', 'map_coord', 'vecobs', 'goal']:
+            for key in ['image', 'action', 'action_next', 'map', 'map_coord', 'vecobs', 'image_goal']:
                 if key in batch:
                     batch[key] = batch[key].astype(np.float16)
 
