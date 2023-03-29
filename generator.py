@@ -378,9 +378,13 @@ class NetworkPolicy:
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
         # if self.policy_mode == 'achiever':
         #     obs['image_goal'] = self.goal_image
-        print(f"Debug obs: {obs['image'].shape}, {obs['image_goal'].shape}")
+        
+        # filter out metrics
+        env_metrics = {}
+        for k in obs.keys():
+            if k.startswith('metric'):
+                env_metrics[k] = obs.pop(k)
 
-        # print(f"[Policy Action] shape: {obs['action'].shape} action: {obs['action']}")
         batch = self.preprocess.apply(obs, expandTB=True)
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 
