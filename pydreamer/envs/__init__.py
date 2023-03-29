@@ -71,7 +71,6 @@ def create_env(conf, env_id: str, no_terminal: bool, env_time_limit: int, env_ac
     elif env_id.startswith('robobin'):
         use_goal_idx, log_per_goal = True, False
         env = lexa_envs.RoboBinEnv(env_action_repeat, use_goal_idx, log_per_goal)
-        env = DictWrapper(env)
 
     else:
         env = gym.make(env_id)

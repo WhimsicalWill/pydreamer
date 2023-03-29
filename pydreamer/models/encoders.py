@@ -94,6 +94,11 @@ class ConvEncoder(nn.Module):
     def forward(self, x):
         x, bd = flatten_batch(x, 3)
         y = self.model(x)
+        if torch.isnan(y).any():
+            print('nan in ConvEncoder')
+            print(f"X contains NaN: {torch.isnan(x).any()}")
+            print(x.shape)
+            print(y.shape)
         y = unflatten_batch(y, bd)
         return y
 

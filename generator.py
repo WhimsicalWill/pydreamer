@@ -169,6 +169,12 @@ def main(conf,
                 for i, rew in enumerate(policy.intr_ep_reward):
                     f.write(f"{i+1} \t {rew} \n")
 
+            # create a PIL image from the numpy array
+            img_goal = Image.fromarray(obs['image_goal'])
+
+            # save the image as a JPEG file
+            img_goal.save(f"{conf.logdir}/goal_{episodes % 8}.jpg")
+
         # switch the policy_mode for lexa
             
         if isinstance(policy, NetworkPolicy):
