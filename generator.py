@@ -25,6 +25,45 @@ from pydreamer.models.functions import map_structure
 from pydreamer.preprocessing import Preprocessor
 from pydreamer.tools import *
 
+def eval_achiever(env, policy, output_path):
+    print('Start gc evaluation.')
+    executions = []
+    goals = []
+    num_goals = min(100, len(env.get_goals()))
+    for idx in range(num_goals):
+        env.set_goal_idx(idx)
+
+        # run the environment with the achiever policy for 150 steps
+        obs = env.reset()
+        done = False
+        frames = []
+        while not done:
+            action, _ = policy(obs)
+            obs, _, done, inf = env.step(action)
+            frames.append(obs['image']) # each frame is a NumPy array of shape (H,W,C)
+
+        # Add executions and goals to the eval list
+        executions.append(np.stack(frames, axis=0))
+        goals.append(obs['image_goal'])
+
+    # W = frames[0].shape[1]  # width of each video frame
+    # Concatenate the lists along the width dimension
+    executions = np.concatenate(executions, axis=-2) # (T,H,K*W,C)
+    goals = np.concatenate(goals, axis=-2) # (H,K*W,C)
+
+    # reshape the goals tensor to be the same shape as the executions tensor (T,H,K*W,C)
+    goals = np.expand_dims(goals, axis=0)
+    goals = np.repeat(goals, executions.shape[0], axis=0)
+
+    # concatenate the goal images and execution videos along the height dimension
+    # to create a single tensor of shape (T,H+H_goal,K*W,C)
+    video = np.concatenate([executions, goals], axis=1)
+
+    if not os.path.exists(os.path.dirname(output_path)):
+        os.makedirs(os.path.dirname(output_path))
+    # with imageio.get_writer(output_path, mode='I') as writer:
+    # writer.append_data(output_path)
+    imageio.mimsave(output_path, video, format='mp4')
 
 def main(conf,
          env_id='MiniGrid-MazeS11N-v0',
@@ -133,12 +172,6 @@ def main(conf,
                 time.sleep(1)
                 continue
 
-
-        # set rendering (eval) to true if appropriate (renders 4 eps every 16 steps?)
-        if isinstance(policy, NetworkPolicy) and policy.should_eval(episodes):
-            policy.set_eval(episodes)
-            frames = []
-
         # Unroll one episode
 
         epsteps = 0
@@ -151,29 +184,25 @@ def main(conf,
         while not done:
             action, mets = policy(obs)
             obs, _, done, inf = env.step(action)
-            if isinstance(policy, NetworkPolicy) and policy.eval:
-                frames.append(obs['image'])
             steps += 1
             epsteps += 1
             for k, v in mets.items():
                 metrics[k].append(v)
 
-        if isinstance(policy, NetworkPolicy) and policy.eval:
-            # Write video to logdir
+        # Evaluate the achiever policy
+
+        if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every == 0:
+            old_active_policy, policy.active_policy = policy.active_policy, 'achiever'
             output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
-            if not os.path.exists(os.path.dirname(output_path)):
-                os.makedirs(os.path.dirname(output_path))
-            imageio.mimsave(output_path, frames, format='mp4')
+            eval_achiever(env, policy, output_path)
+            policy.active_policy = old_active_policy
 
-            # Log reward for each step of the episode to a file
-            with open(f"{conf.logdir}/list_{episodes}.txt", "w") as f:
-                for i, rew in enumerate(policy.intr_ep_reward):
-                    f.write(f"{i+1} \t {rew} \n")
+        # Log intrinsic rewards and switch the active_policy for lexa
 
-        # Log intrinsic rewards and switch the policy_mode for lexa
         if isinstance(policy, NetworkPolicy):
-            info(f"mode: {policy.policy_mode}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
-            policy.reset()
+            info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
+            if policy.collection_mode == 'both':
+                policy.switch_active_policy()
 
         episodes += 1
         data = inf['episode']  # type: ignore
@@ -354,16 +383,12 @@ class NetworkPolicy:
         self.state = model.init_state(1)
         self.collection_mode = collection_mode
         self.input_dirs = input_dirs
-        self.intr_ep_reward = []
-        self.ep_actions = None
-        self.eval = False
 
         if collection_mode == 'explorer':
-            self.policy_mode = 'explorer'
+            self.active_policy = 'explorer'
         else:
-            self.policy_mode = 'achiever'
+            self.active_policy = 'achiever'
             self.init_goal_loader()
-            self.load_goal()
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
         # filter out metrics
@@ -376,49 +401,23 @@ class NetworkPolicy:
         obs_model: Dict[str, Tensor] = map_structure(batch, torch.from_numpy)  # type: ignore
 
         with torch.no_grad():
-            action_distr, new_state, metrics = self.model.forward(obs_model, self.state, self.policy_mode)
+            action_distr, new_state, metrics = self.model.forward(obs_model, self.state, self.active_policy)
             action = action_distr.sample()
-            if self.ep_actions is None:
-                self.ep_actions = action.unsqueeze(0)
-            else:
-                self.ep_actions = torch.cat([self.ep_actions, action.unsqueeze(0)], dim=0)
             self.state = new_state
 
         metrics = {k: v.item() for k, v in metrics.items()}
         metrics.update(action_prob=action_distr.log_prob(action).exp().mean().item(),
                        policy_entropy=action_distr.entropy().mean().item())
-        self.intr_ep_reward.append(metrics['disagreement'])
-
+        # metrics.update(env_metrics)
         action = action.squeeze()  # (1,1,A) => A
         return action.numpy(), metrics
 
+    # TODO: determine if we should be using this to sample random goal images
     def init_goal_loader(self):
         self.data = DataSequential(MlflowEpisodeRepository(self.input_dirs), 1, 1)
 
-    def load_goal(self):
-        pass
-        # self.goal_image = self.data.get_goal_images(1).squeeze(0)
-
-    def should_eval(self, episodes):
-        return (episodes // 4) % 25 == 0
-
-    def set_eval(self, episodes):
-        self.eval = True
-        # TODO: set the goal according to the episodes
-        # self.goal_idx = episodes % 4
-
-    # called at the end of episode
-    def reset(self):
-        self.intr_ep_reward = []
-        self.ep_actions = None
-        self.eval = False
-
-        # switch the policy_mode if in 'both' collection_mode
-        if self.collection_mode == 'both':
-            self.policy_mode = 'explorer' if self.policy_mode == 'achiever' else 'achiever'
-
-        # if self.policy_mode == 'achiever':
-        #     self.load_goal()
+    def switch_active_policy(self):
+        self.active_policy = 'explorer' if self.active_policy == 'achiever' else 'achiever'
 
 
 if __name__ == '__main__':
