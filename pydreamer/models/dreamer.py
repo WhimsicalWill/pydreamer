@@ -259,11 +259,6 @@ class WorldModel(nn.Module):
 
         embed = self.encoder(obs)
 
-        # assert not torch.isnan(embed).any()
-        while torch.isnan(embed).any():
-            print('nan in embed')
-            embed = self.encoder(obs)
-
         # RSSM
 
         prior, post, post_samples, features, states, out_state = \

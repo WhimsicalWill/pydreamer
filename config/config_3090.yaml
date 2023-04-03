@@ -1,4 +1,4 @@
-low_memory:
+config_3090:
   # Job
   n_steps: 500_000
   n_env_steps: 5_000_000
@@ -9,8 +9,8 @@ low_memory:
   offline_test_dir:
   offline_eval_dir:
   log_interval: 100
-  logbatch_interval: 100 # changed from 1000 for more frequent d2_wm_dream logs
-  save_interval: 200
+  logbatch_interval: 1000
+  save_interval: 500
   eval_interval: 2000
   data_workers: 1
   allow_mid_reset: True
@@ -46,7 +46,7 @@ low_memory:
   adam_eps: 1.0e-5
   keep_state: True
   batch_length: 48
-  batch_size: 16
+  batch_size: 32
   device: "cuda:0"
   grad_clip: 200
   grad_clip_ac: 200
@@ -54,7 +54,7 @@ low_memory:
   amp: True
   separate_adams: True  # for baselines
   probe_gradients: False  # for baselines
-  
+
   # Eval
   test_batches: 61  # For unbiased test needs to be enough to cover full episodes
   test_batch_size: 4  # Smaller for faster test

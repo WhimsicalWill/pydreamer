@@ -159,6 +159,7 @@ def main(conf,
                 metrics[k].append(v)
 
         if isinstance(policy, NetworkPolicy) and policy.eval:
+            # Write video to logdir
             output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
             if not os.path.exists(os.path.dirname(output_path)):
                 os.makedirs(os.path.dirname(output_path))
@@ -169,20 +170,9 @@ def main(conf,
                 for i, rew in enumerate(policy.intr_ep_reward):
                     f.write(f"{i+1} \t {rew} \n")
 
-            # create a PIL image from the numpy array
-            img_goal = Image.fromarray(obs['image_goal'])
-
-            # save the image as a JPEG file
-            img_goal.save(f"{conf.logdir}/goal_{episodes % 8}.jpg")
-
-        # switch the policy_mode for lexa
-            
+        # Log intrinsic rewards and switch the policy_mode for lexa
         if isinstance(policy, NetworkPolicy):
-            avg_action = torch.mean(policy.ep_actions, dim=0)[0][0][0]
             info(f"mode: {policy.policy_mode}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
-            actions_list = ['dX', 'dY', 'dZ', 'dGripper']
-            for i in range(len(actions_list)):
-                info(f"{actions_list[i]}: {avg_action[i]:.6f}")
             policy.reset()
 
         episodes += 1
@@ -376,9 +366,6 @@ class NetworkPolicy:
             self.load_goal()
 
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
-        # if self.policy_mode == 'achiever':
-        #     obs['image_goal'] = self.goal_image
-        
         # filter out metrics
         env_metrics = {}
         for k in obs.keys():
