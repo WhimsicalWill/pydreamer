@@ -16,6 +16,7 @@ from .rssm import *
 from .probes import *
 from .behaviors import *
 
+import imageio
 
 class Dreamer(nn.Module):
 
@@ -118,6 +119,15 @@ class Dreamer(nn.Module):
         assert 'terminal' in obs, '`terminal` required in observation'
         T, B = obs['action'].shape[:2]
         I, H = iwae_samples, imag_horizon
+
+        # Debugging image_goal loading
+        # goal_embed = self.get_goal_embedding(obs['image_goal'])  # (T,B,I,E)
+        # slice out one sample from the batch
+
+        video = obs['image_goal'][:, 0] # (T, 3, 64, 64)
+        print(f"Video shape: {video.shape}")
+        imageio.mimsave('./logdir/goal_load_test.mp4', video, format='mp4')
+        assert False, "Debugging image_goal loading"
 
         # World model
 

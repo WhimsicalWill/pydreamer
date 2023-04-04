@@ -353,11 +353,6 @@ def run(conf):
                 with timer('eval'):
                     if conf.eval_interval and steps % conf.eval_interval == 0:
                         try:
-                            # Save the checkpoint before evaluation
-                            tools.mlflow_save_checkpoint(model, optimizers, steps, f"latest_{steps}.pt")
-
-                            # TODO: save some videos here
-
                             # Test = same settings as train
                             data_test = DataSequential(MlflowEpisodeRepository(test_dirs), conf.batch_length, conf.test_batch_size, skip_first=False, reset_interval=conf.reset_interval)
                             test_iter = iter(DataLoader(preprocess(data_test), batch_size=None))
