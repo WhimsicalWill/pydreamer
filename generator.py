@@ -191,7 +191,7 @@ def main(conf,
 
         # Evaluate the achiever policy
 
-        if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every == 0:
+        if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every_eps == 0:
             old_active_policy, policy.active_policy = policy.active_policy, 'achiever'
             output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
             eval_achiever(env, policy, output_path)

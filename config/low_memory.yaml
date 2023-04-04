@@ -111,6 +111,7 @@ low_memory:
   env_time_limit: 0
   env_no_terminal: False
   collection_mode: 'both' # possible values: ('explorer', 'achiever', 'both')
+  eval_every_eps: 100
 
   # Exploration
   expl_behavior: plan2explore
