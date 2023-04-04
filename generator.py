@@ -25,7 +25,7 @@ from pydreamer.models.functions import map_structure
 from pydreamer.preprocessing import Preprocessor
 from pydreamer.tools import *
 
-def eval_policies(env, policy, output_path, episodes):
+def eval_policies(env, policy, output_path):
     if not os.path.exists(os.path.dirname(output_path)):
         os.makedirs(os.path.dirname(output_path))
     executions = []
@@ -55,8 +55,7 @@ def eval_policies(env, policy, output_path, episodes):
 
     # concatenate the goal images and execution videos along the height dimension
     # to create a single tensor of shape (T,H+H_goal,K*W,C)
-    video = np.concatenate([goals, executions], axis=1)
-    imageio.mimsave(f"{output_path}/eval_achiever_{episodes}.mp4", video, format='mp4')
+    video1 = np.concatenate([goals, executions], axis=1)
 
     # Record one rollout using the explorer policy
     policy.active_policy = 'explorer'
@@ -67,7 +66,15 @@ def eval_policies(env, policy, output_path, episodes):
         action, _ = policy(obs)
         obs, _, done, inf = env.step(action)
         frames.append(obs['image']) # each frame is a NumPy array of shape (H,W,C)
-    imageio.mimsave(f"{output_path}/eval_explorer_{episodes}.mp4", np.stack(frames, axis=0), format='mp4')
+
+    # Double the height and width of the frames to match the shape of video1 (T,2*H,2*W,C)
+    video2 = np.stack(frames, axis=0) # shape (T,H,W,C)
+    video2 = np.repeat(video2, 2, axis=1)
+    video2 = np.repeat(video2, 2, axis=2)
+
+    # concatenate the two videos along the width dimension
+    video = np.concatenate([video1, video2], axis=-2) # (T,H+H_goal,2*K*W,C)
+    imageio.mimsave(output_path, video, format='mp4')
 
 def main(conf,
          env_id='MiniGrid-MazeS11N-v0',
@@ -198,7 +205,8 @@ def main(conf,
         if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every_eps == 0:
             info('Evaluating policies (Episodes: {episodes})')
             old_active_policy, policy.active_policy = policy.active_policy, 'achiever'
-            eval_policies(env, policy, conf.logdir, episodes)
+            output_path = os.path.join(conf.logdir, f'eval_{episodes}')
+            eval_policies(env, policy, output_path)
             policy.active_policy = old_active_policy
 
         # Log intrinsic rewards and switch the active_policy for lexa
