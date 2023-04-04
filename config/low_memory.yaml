@@ -222,7 +222,7 @@ crafter:
 robobin:
   env_id: robobin
   action_dim: 4
-  env_time_limit: 100
+  env_time_limit: 150
   logdir: ./logdir/run_4_4
   actor_dist: normal_tanh
 
