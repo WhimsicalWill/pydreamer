@@ -216,14 +216,14 @@ crafter:
   save_episode: False
   save_video: False
   run_id: 1
-  logdir: ./logdir/run_4_3
+  logdir: ./logdir/run_4_4
   use_reward: True
 
 robobin:
   env_id: robobin
   action_dim: 4
-  env_time_limit: 75
-  logdir: ./logdir/run_4_3
+  env_time_limit: 100
+  logdir: ./logdir/run_4_4
   actor_dist: normal_tanh
 
 minecraft:
