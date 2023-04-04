@@ -182,6 +182,9 @@ def main(conf,
                 # Rate limiting - keep looping until new model checkpoint is loaded
                 time.sleep(1)
                 continue
+            
+            # reset the intrinsic rewards for the Network Policy
+            policy.intr_ep_reward = []
 
         # Unroll one episode
 
@@ -205,14 +208,14 @@ def main(conf,
         if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every_eps == 0:
             info('Evaluating policies (Episodes: {episodes})')
             old_active_policy, policy.active_policy = policy.active_policy, 'achiever'
-            output_path = os.path.join(conf.logdir, f'eval_{episodes}')
+            output_path = os.path.join(conf.logdir, f'eval_{episodes}.mp4')
             eval_policies(env, policy, output_path)
             policy.active_policy = old_active_policy
 
         # Log intrinsic rewards and switch the active_policy for lexa
 
         if isinstance(policy, NetworkPolicy):
-            # info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
+            info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
             if policy.collection_mode == 'both':
                 policy.switch_active_policy()
 
@@ -308,7 +311,6 @@ def main(conf,
             data = {}
             for key in datas[0]:
                 data[key] = np.concatenate([b[key] for b in datas], axis=0)
-            print(list(data.keys()))
             datas = []
             print_once('Collected data sample: ', {k: v.shape for k, v in data.items()})
 
@@ -396,6 +398,7 @@ class NetworkPolicy:
         self.state = model.init_state(1)
         self.collection_mode = collection_mode
         self.input_dirs = input_dirs
+        self.intr_ep_reward = []
 
         if collection_mode == 'explorer':
             self.active_policy = 'explorer'
@@ -422,6 +425,7 @@ class NetworkPolicy:
         metrics.update(action_prob=action_distr.log_prob(action).exp().mean().item(),
                        policy_entropy=action_distr.entropy().mean().item())
         # metrics.update(env_metrics)
+        self.intr_ep_reward.append(metrics['disagreement'])
         action = action.squeeze()  # (1,1,A) => A
         return action.numpy(), metrics
 
