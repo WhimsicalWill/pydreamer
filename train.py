@@ -633,7 +633,6 @@ if __name__ == '__main__':
     # Config from YAML
     conf = {}
     configs = tools.read_yamls('./config')
-    print(f"Configs: {args.configs}")
     for name in args.configs:
         if ',' in name:
             for n in name.split(','):
