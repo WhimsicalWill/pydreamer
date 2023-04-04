@@ -176,7 +176,7 @@ def main(conf,
 
         epsteps = 0
         timer = time.time()
-        env.set_goal_idx((episodes//2) % len(env.get_goals()))
+        env.set_goal_idx(episodes % 8)
         obs = env.reset()
         done = False
         metrics = defaultdict(list)
@@ -200,7 +200,7 @@ def main(conf,
         # Log intrinsic rewards and switch the active_policy for lexa
 
         if isinstance(policy, NetworkPolicy):
-            # info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
+            info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
             if policy.collection_mode == 'both':
                 policy.switch_active_policy()
 
@@ -393,7 +393,7 @@ class NetworkPolicy:
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
         # filter out metrics
         env_metrics = {}
-        for k in list(obs.keys()):
+        for k in obs.keys():
             if k.startswith('metric'):
                 env_metrics[k] = obs.pop(k)
 
