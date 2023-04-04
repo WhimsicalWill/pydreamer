@@ -255,7 +255,11 @@ class DataSequential(IterableDataset):
                 # Random resets are generated at any step, but always reset in the beginning of the batch, for longer backprop
                 assert not np.any(batch['reset']), 'randomize_resets should not coincide with actual resets'
                 batch['reset'][0] = True
-            batch['image_goal'] = self.get_goal_images(lenb(batch)) # (D, H, W, C)
+            # TODO: modify to take image from robobin % 8
+            # Instead, we have to save image_goal from the episodes
+            # batch['image_goal'] = self.get_goal_images(lenb(batch)) # (D, H, W, C)
+            print("Shape from data.py")
+            print(batch['image_goal'].shape)
             is_partial = lenb(batch) < l
             i += l
             l = batch_length

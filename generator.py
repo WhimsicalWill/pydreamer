@@ -308,6 +308,7 @@ def main(conf,
             data = {}
             for key in datas[0]:
                 data[key] = np.concatenate([b[key] for b in datas], axis=0)
+            print(list(data.keys()))
             datas = []
             print_once('Collected data sample: ', {k: v.shape for k, v in data.items()})
 
