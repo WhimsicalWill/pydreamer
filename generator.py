@@ -25,15 +25,14 @@ from pydreamer.models.functions import map_structure
 from pydreamer.preprocessing import Preprocessor
 from pydreamer.tools import *
 
-def eval_achiever(env, policy, output_path):
-    print('Start gc evaluation.')
+def eval_policies(env, policy, output_path, episodes):
+    if not os.path.exists(os.path.dirname(output_path)):
+        os.makedirs(os.path.dirname(output_path))
     executions = []
     goals = []
     num_goals = min(100, len(env.get_goals()))
     for idx in range(num_goals):
         env.set_goal_idx(idx)
-
-        # run the environment with the achiever policy for 150 steps
         obs = env.reset()
         done = False
         frames = []
@@ -46,7 +45,6 @@ def eval_achiever(env, policy, output_path):
         executions.append(np.stack(frames, axis=0))
         goals.append(obs['image_goal'])
 
-    # W = frames[0].shape[1]  # width of each video frame
     # Concatenate the lists along the width dimension
     executions = np.concatenate(executions, axis=-2) # (T,H,K*W,C)
     goals = np.concatenate(goals, axis=-2) # (H,K*W,C)
@@ -57,13 +55,19 @@ def eval_achiever(env, policy, output_path):
 
     # concatenate the goal images and execution videos along the height dimension
     # to create a single tensor of shape (T,H+H_goal,K*W,C)
-    video = np.concatenate([executions, goals], axis=1)
+    video = np.concatenate([goals, executions], axis=1)
+    imageio.mimsave(f"{output_path}/eval_achiever_{episodes}.mp4", video, format='mp4')
 
-    if not os.path.exists(os.path.dirname(output_path)):
-        os.makedirs(os.path.dirname(output_path))
-    # with imageio.get_writer(output_path, mode='I') as writer:
-    # writer.append_data(output_path)
-    imageio.mimsave(output_path, video, format='mp4')
+    # Record one rollout using the explorer policy
+    policy.active_policy = 'explorer'
+    obs = env.reset()
+    done = False
+    frames = []
+    while not done:
+        action, _ = policy(obs)
+        obs, _, done, inf = env.step(action)
+        frames.append(obs['image']) # each frame is a NumPy array of shape (H,W,C)
+    imageio.mimsave(f"{output_path}/eval_explorer_{episodes}.mp4", np.stack(frames, axis=0), format='mp4')
 
 def main(conf,
          env_id='MiniGrid-MazeS11N-v0',
@@ -176,7 +180,7 @@ def main(conf,
 
         epsteps = 0
         timer = time.time()
-        env.set_goal_idx(episodes % 8)
+        env.set_goal_idx((episodes//2) % len(env.get_goals()))
         obs = env.reset()
         done = False
         metrics = defaultdict(list)
@@ -192,15 +196,15 @@ def main(conf,
         # Evaluate the achiever policy
 
         if isinstance(policy, NetworkPolicy) and episodes % conf.eval_every_eps == 0:
+            info('Evaluating policies (Episodes: {episodes})')
             old_active_policy, policy.active_policy = policy.active_policy, 'achiever'
-            output_path = f"{conf.logdir}/vids_eval_{episodes}.mp4"
-            eval_achiever(env, policy, output_path)
+            eval_policies(env, policy, conf.logdir, episodes)
             policy.active_policy = old_active_policy
 
         # Log intrinsic rewards and switch the active_policy for lexa
 
         if isinstance(policy, NetworkPolicy):
-            info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
+            # info(f"mode: {policy.active_policy}, intr_reward: {sum(policy.intr_ep_reward):.3f}")
             if policy.collection_mode == 'both':
                 policy.switch_active_policy()
 
@@ -393,7 +397,7 @@ class NetworkPolicy:
     def __call__(self, obs) -> Tuple[np.ndarray, dict]:
         # filter out metrics
         env_metrics = {}
-        for k in obs.keys():
+        for k in list(obs.keys()):
             if k.startswith('metric'):
                 env_metrics[k] = obs.pop(k)
 
