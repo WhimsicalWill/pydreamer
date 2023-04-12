@@ -95,6 +95,16 @@ class Dreamer(nn.Module):
 
         feature = features[:, :, 0]  # (T=1,B,I=1,F) => (1,B,F)
         if behavior == 'achiever':
+
+            # Debug goals (training step)
+            # obs['image_goal'] is a torch tensor
+            # we want to save it to an image file
+            print(torch.max(obs['image_goal']))
+            print(torch.min(obs['image_goal']))
+            print(obs['image_goal'].shape)
+            print('-' * 20)
+
+
             goal_embed = self.get_goal_embedding(obs['image_goal']).unsqueeze(0)  # (1,1,1,E,)
             action_distr, value = self._task_behavior(features, goal_embed)
         else:
@@ -138,6 +148,11 @@ class Dreamer(nn.Module):
         tensors.update(**tensors_probe)
 
         # Task Behavior Training Step (achiever)
+
+        # Debug goals (training step)
+        # obs['image_goal'] is a torch tensor
+        # we want to save it to an image file
+
         
         goal_embed = self.get_goal_embedding(obs['image_goal'])  # (T,B,I,E)
         goal_embed = flatten_batch(goal_embed)[0]  # (T,B,I,E) => (TBI,E)
