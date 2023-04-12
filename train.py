@@ -253,10 +253,16 @@ def run(conf):
 
                 with timer('backward'):
 
-                    for opt in optimizers:
-                        opt.zero_grad()
-                    for loss in losses:
-                        scaler.scale(loss).backward()
+                    with open("task_debug.txt", "w") as f:
+                        for opt in optimizers:
+                            opt.zero_grad()
+                        loss_names = ["loss_model", "loss_probe", "expl_loss_actor", "expl_loss_critic", "ensemble_loss", "task_loss_actor", "task_loss_critic"]
+                        debug_losses = ("task_loss_actor", "task_loss_critic")
+                        for i, loss in enumerate(losses):
+                            scaled_loss = scaler.scale(loss)
+                            if loss_names[i] in debug_losses:
+                                f.write(f'step: {steps}, loss {loss_names[i]}: {loss.item()}\n')
+                            scaled_loss.backward()
 
                 # Grad step
 

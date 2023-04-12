@@ -190,7 +190,8 @@ def main(conf,
 
         epsteps = 0
         timer = time.time()
-        env.set_goal_idx((episodes//2) % len(env.get_goals()))
+        # env.set_goal_idx((episodes//2) % len(env.get_goals()))
+        env.set_goal_idx((episodes//2) % 2)
         obs = env.reset()
         done = False
         metrics = defaultdict(list)
